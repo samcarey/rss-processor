@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+
+{% block title %}{{ podcast.title }} - RSS Podcast Processor{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div style="display: flex; align-items: start; gap: 1.5rem; flex-wrap: wrap;">
+        {% if podcast.image_url %}
+        <img src="{{ podcast.image_url }}" alt="{{ podcast.title }}"
+             style="width: 200px; height: 200px; object-fit: cover; border-radius: 8px;">
+        {% endif %}
+        <div style="flex: 1; min-width: 300px;">
+            <h2>{{ podcast.title }}</h2>
+            <p style="color: #666; margin-bottom: 1rem;">{{ podcast.author or 'Unknown Author' }}</p>
+            {% if podcast.description %}
+            <p>{{ podcast.description[:300] }}{% if podcast.description|length > 300 %}...{% endif %}</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <div id="processing-progress" style="margin-top: 1.5rem; display: none;">
+        <h3>Processing Progress</h3>
+        <div style="background: #ecf0f1; border-radius: 8px; padding: 1rem; margin-top: 0.5rem;">
+            <div style="margin-bottom: 0.5rem;">
+                <strong>Status:</strong> <span id="progress-status">Processing</span>
+            </div>
+            <div style="margin-bottom: 0.5rem;">
+                <strong>Current:</strong> <span id="progress-current">-</span>
+            </div>
+            <div style="background: white; border-radius: 4px; height: 30px; overflow: hidden; margin-bottom: 0.5rem;">
+                <div id="progress-bar" style="background: linear-gradient(90deg, #3498db, #2ecc71); height: 100%; width: 0%; transition: width 0.3s ease; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 0.9rem;">
+                    0%
+                </div>
+            </div>
+            <div style="display: flex; justify-content: space-between; font-size: 0.9rem; color: #666;">
+                <span><span id="progress-processed">0</span> / <span id="progress-total">0</span> episodes</span>
+                <span id="progress-eta"></span>
+            </div>
+        </div>
+    </div>
+
+    <div style="margin-top: 1.5rem;">
+        <h3>Cleaned RSS Feed</h3>
+        <div class="feed-url">{{ feed_url }}</div>
+        <p style="color: #666; font-size: 0.9rem;">
+            Copy this URL and add it to your podcast app to listen to episodes with ads and duplicates removed.
+        </p>
+    </div>
+
+    <form action="{{ url_for('main.delete_podcast', podcast_id=podcast.id) }}" method="POST"
+          onsubmit="return confirm('Are you sure you want to delete this podcast and all its episodes?');"
+          style="margin-top: 1rem;">
+        <button type="submit" class="btn btn-danger btn-small">Delete Podcast</button>
+    </form>
+</div>
+
+<script>
+// Poll for processing progress
+let progressInterval = null;
+
+function updateProgress() {
+    fetch('{{ url_for("main.podcast_progress", podcast_id=podcast.id) }}')
+        .then(response => response.json())
+        .then(data => {
+            const progressDiv = document.getElementById('processing-progress');
+
+            if (data.status !== 'idle') {
+                // Show progress section
+                progressDiv.style.display = 'block';
+
+                // Update status
+                document.getElementById('progress-status').textContent =
+                    data.status.charAt(0).toUpperCase() + data.status.slice(1);
+
+                // Update current episode
+                document.getElementById('progress-current').textContent =
+                    data.current_episode || 'Preparing...';
+
+                // Update numbers
+                document.getElementById('progress-processed').textContent = data.processed;
+                document.getElementById('progress-total').textContent = data.total;
+
+                // Update progress bar
+                const progressBar = document.getElementById('progress-bar');
+                progressBar.style.width = data.percentage + '%';
+                progressBar.textContent = data.percentage + '%';
+
+                // Update ETA
+                const etaElement = document.getElementById('progress-eta');
+                if (data.eta_minutes !== undefined) {
+                    if (data.eta_minutes < 1) {
+                        etaElement.textContent = 'ETA: <1 min';
+                    } else {
+                        etaElement.textContent = 'ETA: ~' + Math.round(data.eta_minutes) + ' min';
+                    }
+                } else {
+                    etaElement.textContent = '';
+                }
+
+                // Continue polling
+                if (!progressInterval) {
+                    progressInterval = setInterval(updateProgress, 2000);
+                }
+            } else {
+                // Hide progress section when idle
+                progressDiv.style.display = 'none';
+
+                // Stop polling if status is idle
+                if (progressInterval) {
+                    clearInterval(progressInterval);
+                    progressInterval = null;
+
+                    // Reload page to show newly processed episodes
+                    location.reload();
+                }
+            }
+        })
+        .catch(error => {
+            console.error('Failed to fetch progress:', error);
+        });
+}
+
+// Check progress on page load
+updateProgress();
+</script>
+
+<div class="card">
+    <h3>Episodes ({{ episodes|length }})</h3>
+    {% if episodes %}
+    <ul class="episode-list">
+        {% for episode in episodes %}
+        <li class="episode-item {% if episode.processed %}processed{% else %}unprocessed{% endif %}">
+            <div class="episode-title">
+                <a href="{{ url_for('main.episode_detail', episode_id=episode.id) }}"
+                   style="text-decoration: none; color: inherit;">
+                    {{ episode.title }}
+                </a>
+                <span class="episode-status {% if episode.processed %}processed{% else %}unprocessed{% endif %}">
+                    {% if episode.processed %}Processed{% else %}Pending{% endif %}
+                </span>
+            </div>
+            <div class="episode-meta">
+                {% if episode.pub_date %}
+                Published: {{ episode.pub_date.strftime('%Y-%m-%d') }}
+                {% endif %}
+                {% if episode.duration_seconds %}
+                | Duration: {{ (episode.duration_seconds / 60)|int }} min
+                {% endif %}
+            </div>
+        </li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <div class="alert alert-info">
+        No episodes found. The worker will check for new episodes automatically.
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,355 @@
+{% extends "base.html" %}
+
+{% block title %}Processing Queue - RSS Podcast Processor{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>Processing Queue</h2>
+    <p style="color: #666;">Live view of episode processing</p>
+</div>
+
+<!-- System Status Banner -->
+<div class="card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none;">
+    <div style="display: flex; align-items: center; gap: 1rem;">
+        <div style="font-size: 2rem;">⚙️</div>
+        <div style="flex: 1;">
+            <div style="font-size: 0.85rem; opacity: 0.9; margin-bottom: 0.25rem;">Current Status</div>
+            <div style="font-size: 1.25rem; font-weight: 600;" id="system-status-message">
+                Loading...
+            </div>
+        </div>
+        <div>
+            <button id="trigger-worker-btn" onclick="triggerWorker()"
+                    style="background: rgba(255,255,255,0.2); color: white; border: 2px solid white; padding: 0.75rem 1.5rem; border-radius: 6px; font-weight: 600; cursor: pointer; transition: all 0.2s; font-size: 1rem;">
+                ▶️ Run Now
+            </button>
+            <div id="trigger-feedback" style="margin-top: 0.5rem; font-size: 0.85rem; opacity: 0; transition: opacity 0.3s;">
+                <!-- Feedback message will appear here -->
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Currently Processing Episode -->
+<div id="current-section" style="display: none;">
+    <div class="card processing-active">
+        <h3 style="margin-top: 0;">⚡ Currently Processing</h3>
+
+        <div style="display: flex; align-items: start; gap: 1rem; margin-top: 1rem;">
+            <img id="current-image" src="" alt="" style="width: 80px; height: 80px; object-fit: cover; border-radius: 8px; flex-shrink: 0;">
+
+            <div style="flex: 1; min-width: 0;">
+                <div style="font-size: 0.85rem; color: #666; margin-bottom: 0.25rem;" id="current-podcast">
+                    <!-- Podcast name -->
+                </div>
+                <h4 style="margin: 0 0 1rem 0;" id="current-title">
+                    <!-- Episode title -->
+                </h4>
+
+                <!-- Progress Bar -->
+                <div class="progress-bar-container">
+                    <div class="progress-bar-fill" id="current-progress-bar" style="width: 0%;">
+                        <span class="progress-text" id="current-percentage">0%</span>
+                    </div>
+                </div>
+
+                <div style="display: flex; justify-content: space-between; margin-top: 0.5rem; font-size: 0.9rem; color: #666;">
+                    <span>Processing audio...</span>
+                    <span id="current-eta"></span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Pending Episodes -->
+<div class="card">
+    <h3 style="margin-top: 0;">
+        ⏳ Pending Queue
+        <span id="pending-count" style="font-size: 0.9rem; color: #666; font-weight: normal;"></span>
+    </h3>
+
+    <div id="pending-list">
+        <div class="alert alert-info">
+            Loading pending episodes...
+        </div>
+    </div>
+</div>
+
+<!-- Recently Completed -->
+<div class="card">
+    <h3 style="margin-top: 0;">
+        ✓ Recently Completed
+        <span id="completed-count" style="font-size: 0.9rem; color: #666; font-weight: normal;"></span>
+    </h3>
+
+    <div id="completed-list">
+        <div class="alert alert-info">
+            Loading completed episodes...
+        </div>
+    </div>
+</div>
+
+<script>
+let lastUpdateData = null;
+
+function updateProcessingQueue() {
+    fetch('/api/processing_queue')
+        .then(response => response.json())
+        .then(data => {
+            // Update system status message
+            document.getElementById('system-status-message').textContent = data.status_message;
+
+            // Update current episode
+            const currentSection = document.getElementById('current-section');
+            if (data.current) {
+                currentSection.style.display = 'block';
+                document.getElementById('current-image').src = data.current.podcast_image || '';
+                document.getElementById('current-podcast').textContent = data.current.podcast_title;
+                document.getElementById('current-title').textContent = data.current.title;
+
+                // Update progress bar
+                const progressBar = document.getElementById('current-progress-bar');
+                const percentage = document.getElementById('current-percentage');
+                progressBar.style.width = data.current.percentage + '%';
+                percentage.textContent = data.current.percentage + '%';
+
+                // Update ETA
+                const eta = document.getElementById('current-eta');
+                if (data.current.eta_minutes !== undefined && data.current.eta_minutes > 0) {
+                    if (data.current.eta_minutes < 1) {
+                        eta.textContent = 'ETA: <1 min';
+                    } else {
+                        eta.textContent = 'ETA: ~' + Math.round(data.current.eta_minutes) + ' min';
+                    }
+                } else {
+                    eta.textContent = '';
+                }
+            } else {
+                currentSection.style.display = 'none';
+            }
+
+            // Update pending count
+            document.getElementById('pending-count').textContent =
+                '(' + data.pending_count + ' episodes)';
+
+            // Update pending episodes list
+            const pendingList = document.getElementById('pending-list');
+            if (data.pending.length === 0) {
+                pendingList.innerHTML = '<div class="alert alert-info">No episodes in queue</div>';
+            } else {
+                let html = '<div class="episode-queue">';
+                data.pending.forEach((episode, index) => {
+                    const statusIcon = episode.downloaded ? '📥' : '⏳';
+                    const statusText = episode.downloaded ? 'Ready to process' : 'Waiting to download';
+
+                    html += `
+                        <div class="queue-item">
+                            <div style="display: flex; align-items: center; gap: 1rem;">
+                                <img src="${episode.podcast_image || ''}" alt=""
+                                     style="width: 50px; height: 50px; object-fit: cover; border-radius: 4px;">
+                                <div style="flex: 1; min-width: 0;">
+                                    <div style="font-size: 0.8rem; color: #666;">
+                                        ${episode.podcast_title}
+                                    </div>
+                                    <div style="font-weight: 500; margin: 0.25rem 0;">
+                                        ${episode.title}
+                                    </div>
+                                    <div style="font-size: 0.85rem; color: #7f8c8d;">
+                                        ${statusIcon} ${statusText}
+                                        ${episode.pub_date ? ' • ' + episode.pub_date : ''}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+                html += '</div>';
+                pendingList.innerHTML = html;
+            }
+
+            // Update completed count
+            document.getElementById('completed-count').textContent =
+                '(' + data.completed_count + ' total)';
+
+            // Update completed episodes list
+            const completedList = document.getElementById('completed-list');
+            if (data.completed.length === 0) {
+                completedList.innerHTML = '<div class="alert alert-info">No episodes processed yet</div>';
+            } else {
+                let html = '<div class="episode-queue">';
+                data.completed.forEach(episode => {
+                    const savedText = episode.time_saved_minutes > 0
+                        ? `Saved ${episode.time_saved_minutes} min`
+                        : 'No duplicates found';
+                    const savedClass = episode.time_saved_minutes > 0 ? 'text-success' : 'text-muted';
+
+                    html += `
+                        <div class="queue-item completed-item">
+                            <div style="display: flex; align-items: center; gap: 1rem;">
+                                <img src="${episode.podcast_image || ''}" alt=""
+                                     style="width: 50px; height: 50px; object-fit: cover; border-radius: 4px;">
+                                <div style="flex: 1; min-width: 0;">
+                                    <div style="font-size: 0.8rem; color: #666;">
+                                        ${episode.podcast_title}
+                                    </div>
+                                    <div style="font-weight: 500; margin: 0.25rem 0;">
+                                        <a href="/episode/${episode.id}" style="text-decoration: none; color: inherit;">
+                                            ${episode.title}
+                                        </a>
+                                    </div>
+                                    <div style="font-size: 0.85rem;" class="${savedClass}">
+                                        ✓ ${savedText}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+                html += '</div>';
+                completedList.innerHTML = html;
+            }
+
+            lastUpdateData = data;
+        })
+        .catch(error => {
+            console.error('Failed to fetch processing queue:', error);
+            // Show error in status message
+            document.getElementById('system-status-message').textContent =
+                'Error loading status - refresh page';
+        });
+}
+
+// Update immediately on load
+updateProcessingQueue();
+
+// Update every 2 seconds
+setInterval(updateProcessingQueue, 2000);
+
+// Trigger worker function
+function triggerWorker() {
+    const btn = document.getElementById('trigger-worker-btn');
+    const feedback = document.getElementById('trigger-feedback');
+
+    // Disable button
+    btn.disabled = true;
+    btn.style.opacity = '0.6';
+    btn.style.cursor = 'not-allowed';
+    btn.textContent = '⏳ Starting...';
+
+    fetch('/api/trigger_worker', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            feedback.textContent = '✓ Worker started! Check back in a few seconds.';
+            feedback.style.opacity = '1';
+
+            // Re-enable button after 10 seconds
+            setTimeout(() => {
+                btn.disabled = false;
+                btn.style.opacity = '1';
+                btn.style.cursor = 'pointer';
+                btn.textContent = '▶️ Run Now';
+                feedback.style.opacity = '0';
+            }, 10000);
+        } else {
+            feedback.textContent = '✗ Error: ' + data.message;
+            feedback.style.opacity = '1';
+
+            // Re-enable button immediately on error
+            btn.disabled = false;
+            btn.style.opacity = '1';
+            btn.style.cursor = 'pointer';
+            btn.textContent = '▶️ Run Now';
+
+            setTimeout(() => {
+                feedback.style.opacity = '0';
+            }, 5000);
+        }
+    })
+    .catch(error => {
+        feedback.textContent = '✗ Failed to trigger worker';
+        feedback.style.opacity = '1';
+
+        // Re-enable button
+        btn.disabled = false;
+        btn.style.opacity = '1';
+        btn.style.cursor = 'pointer';
+        btn.textContent = '▶️ Run Now';
+
+        setTimeout(() => {
+            feedback.style.opacity = '0';
+        }, 5000);
+    });
+}
+</script>
+
+<style>
+.processing-active {
+    border-left: 4px solid #3498db;
+    background: linear-gradient(to right, #ebf5fb 0%, white 100%);
+}
+
+.progress-bar-container {
+    width: 100%;
+    height: 30px;
+    background: #ecf0f1;
+    border-radius: 6px;
+    overflow: hidden;
+    box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.progress-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #3498db, #2ecc71);
+    transition: width 0.5s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.progress-text {
+    color: white;
+    font-weight: bold;
+    font-size: 0.9rem;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+}
+
+.episode-queue {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.queue-item {
+    padding: 0.75rem;
+    background: #f8f9fa;
+    border-radius: 6px;
+    border-left: 3px solid #e0e0e0;
+    transition: all 0.2s;
+}
+
+.queue-item:hover {
+    background: #e9ecef;
+    border-left-color: #3498db;
+}
+
+.completed-item {
+    border-left-color: #27ae60;
+}
+
+.text-success {
+    color: #27ae60;
+    font-weight: 500;
+}
+
+.text-muted {
+    color: #95a5a6;
+}
+</style>
+{% endblock %}

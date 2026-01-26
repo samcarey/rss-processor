@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+
+{% block title %}Home - RSS Podcast Processor{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: start; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem;">
+        <h2 style="margin: 0;">Add New Podcast</h2>
+        <button onclick="triggerWorker()" id="trigger-btn" class="btn btn-small" style="background: #27ae60;">
+            ⚡ Check for New Episodes
+        </button>
+    </div>
+    <form action="{{ url_for('main.add_podcast') }}" method="POST">
+        <div class="form-group">
+            <label for="feed_url">RSS Feed URL:</label>
+            <input type="url" id="feed_url" name="feed_url"
+                   placeholder="https://example.com/podcast/feed.xml" required>
+        </div>
+        <button type="submit">Add Podcast</button>
+    </form>
+    <div id="trigger-message" style="margin-top: 1rem; padding: 0.75rem; border-radius: 4px; display: none;"></div>
+</div>
+
+<script>
+function triggerWorker() {
+    const btn = document.getElementById('trigger-btn');
+    const msg = document.getElementById('trigger-message');
+
+    btn.disabled = true;
+    btn.textContent = '⏳ Checking...';
+
+    fetch('/api/trigger_worker', { method: 'POST' })
+        .then(response => response.json())
+        .then(data => {
+            msg.style.display = 'block';
+            if (data.status === 'success') {
+                msg.style.background = '#d4edda';
+                msg.style.color = '#155724';
+                msg.textContent = '✓ Worker started! Episodes will be checked in the background.';
+            } else {
+                msg.style.background = '#f8d7da';
+                msg.style.color = '#721c24';
+                msg.textContent = '✗ Error: ' + data.message;
+            }
+
+            setTimeout(() => {
+                btn.disabled = false;
+                btn.textContent = '⚡ Check for New Episodes';
+                msg.style.display = 'none';
+            }, 5000);
+        })
+        .catch(error => {
+            msg.style.display = 'block';
+            msg.style.background = '#f8d7da';
+            msg.style.color = '#721c24';
+            msg.textContent = '✗ Failed to trigger worker';
+
+            setTimeout(() => {
+                btn.disabled = false;
+                btn.textContent = '⚡ Check for New Episodes';
+                msg.style.display = 'none';
+            }, 5000);
+        });
+}
+</script>
+
+{% if podcasts %}
+<div class="card">
+    <h2>Recent Podcasts</h2>
+    <div class="podcast-list">
+        {% for podcast in podcasts[:6] %}
+        <a href="{{ url_for('main.podcast_detail', podcast_id=podcast.id) }}" class="podcast-card">
+            {% if podcast.image_url %}
+            <img src="{{ podcast.image_url }}" alt="{{ podcast.title }}" class="podcast-image">
+            {% endif %}
+            <div class="podcast-title">{{ podcast.title }}</div>
+            <div class="podcast-author">{{ podcast.author or 'Unknown Author' }}</div>
+            {% if podcast.processing_status and podcast.processing_status != 'idle' %}
+            <div class="progress-badge">Processing {{ podcast.progress_percentage }}%</div>
+            {% elif podcast.total_episode_count > 0 %}
+            <div class="progress-mini-bar">
+                <div class="progress-mini-fill" style="width: {{ podcast.progress_percentage }}%;"></div>
+            </div>
+            <div style="font-size: 0.75rem; color: #666; margin-top: 0.25rem;">
+                {{ podcast.processed_episode_count }} / {{ podcast.total_episode_count }} episodes
+            </div>
+            {% endif %}
+        </a>
+        {% endfor %}
+    </div>
+    {% if podcasts|length > 6 %}
+    <p style="margin-top: 1rem;">
+        <a href="{{ url_for('main.podcasts') }}" class="btn btn-small">View All Podcasts</a>
+    </p>
+    {% endif %}
+</div>
+{% else %}
+<div class="alert alert-info">
+    <strong>Welcome!</strong> Add your first podcast using the form above.
+</div>
+{% endif %}
+
+<script>
+// Auto-refresh if any podcast is being processed
+{% for podcast in podcasts %}
+    {% if podcast.processing_status and podcast.processing_status != 'idle' %}
+        setTimeout(function() {
+            location.reload();
+        }, 5000);  // Refresh every 5 seconds
+        break;
+    {% endif %}
+{% endfor %}
+</script>
+{% endblock %}

@@ -1,0 +1,20 @@
+storage:
+  base_path: ./data
+  original: ./data/original
+  processed: ./data/processed
+  segments: ./data/segments
+  database: ./data/rss-processor.db
+
+web:
+  host: 0.0.0.0
+  port: 5001
+  base_url: http://100.92.152.37:5001  # Tailscale IP address
+
+worker:
+  check_interval_seconds: 1800  # 30 minutes
+  backfill_days: 14
+
+audio:
+  fingerprint_window_seconds: 10
+  min_duplicate_duration_seconds: 10
+  max_workers: 2

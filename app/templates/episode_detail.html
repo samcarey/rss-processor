@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+
+{% block title %}{{ episode.title }} - RSS Podcast Processor{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>{{ episode.title }}</h2>
+
+    <div class="episode-meta" style="margin-bottom: 1rem;">
+        <strong>Podcast:</strong>
+        <a href="{{ url_for('main.podcast_detail', podcast_id=episode.podcast.id) }}">
+            {{ episode.podcast.title }}
+        </a>
+        <br>
+        {% if episode.pub_date %}
+        <strong>Published:</strong> {{ episode.pub_date.strftime('%Y-%m-%d %H:%M') }}<br>
+        {% endif %}
+        {% if episode.duration_seconds %}
+        <strong>Original Duration:</strong> {{ (episode.duration_seconds / 60)|int }} minutes<br>
+        {% endif %}
+        <strong>Status:</strong>
+        <span class="episode-status {% if episode.processed %}processed{% else %}unprocessed{% endif %}">
+            {% if episode.processed %}Processed{% else %}Pending Processing{% endif %}
+        </span>
+    </div>
+
+    {% if episode.description %}
+    <p>{{ episode.description }}</p>
+    {% endif %}
+
+    {% if episode.processed and episode.processed_audio_path %}
+    <div style="margin-top: 1.5rem;">
+        <h3>Processed Audio</h3>
+        <audio controls>
+            <source src="{{ url_for('main.serve_audio', episode_id=episode.id) }}" type="audio/mpeg">
+            Your browser does not support the audio element.
+        </audio>
+    </div>
+    {% endif %}
+</div>
+
+{% if removed_segments %}
+<div class="card">
+    <h3>Removed Segments ({{ removed_segments|length }})</h3>
+    <div class="alert alert-success">
+        Total time saved: <strong>{{ (total_saved / 60)|round(1) }} minutes</strong>
+    </div>
+
+    <div class="segment-list">
+        {% for segment in removed_segments %}
+        <div class="segment-item">
+            <div>
+                <span class="segment-time">
+                    {{ '%02d:%02d' | format((segment.start_time // 60)|int, (segment.start_time % 60)|int) }}
+                    -
+                    {{ '%02d:%02d' | format((segment.end_time // 60)|int, (segment.end_time % 60)|int) }}
+                </span>
+                <span class="segment-duration" style="margin-left: 1rem;">
+                    -{{ segment.duration|round(1) }}s
+                </span>
+                {% if segment.matched_episode %}
+                <div style="font-size: 0.85rem; color: #666; margin-top: 0.25rem;">
+                    Duplicate from: {{ segment.matched_episode.title[:50] }}...
+                </div>
+                {% endif %}
+            </div>
+            <div style="flex: 1; max-width: 400px; margin-top: 0.5rem;">
+                <audio controls style="width: 100%;">
+                    <source src="{{ url_for('main.play_segment', segment_id=segment.id) }}" type="audio/mpeg">
+                </audio>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% elif episode.processed %}
+<div class="card">
+    <div class="alert alert-info">
+        No duplicate segments were found in this episode.
+    </div>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+
+{% block title %}System Status - RSS Podcast Processor{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>System Status</h2>
+
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-value">{{ stats.podcasts }}</div>
+            <div class="stat-label">Podcasts</div>
+        </div>
+
+        <div class="stat-card">
+            <div class="stat-value">{{ stats.episodes }}</div>
+            <div class="stat-label">Total Episodes</div>
+        </div>
+
+        <div class="stat-card">
+            <div class="stat-value">{{ stats.processed }}</div>
+            <div class="stat-label">Processed Episodes</div>
+        </div>
+
+        <div class="stat-card">
+            <div class="stat-value">{{ stats.segments_removed }}</div>
+            <div class="stat-label">Segments Removed</div>
+        </div>
+
+        <div class="stat-card">
+            <div class="stat-value">{{ stats.hours_saved|round(1) }}</div>
+            <div class="stat-label">Hours Saved</div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <h3>About</h3>
+    <p>
+        This RSS Podcast Processor automatically downloads podcast episodes, detects duplicate
+        audio segments (like ads, intros, and outros), and removes them to create cleaned
+        episodes. The cleaned episodes are served via custom RSS feeds that you can add to
+        your favorite podcast app.
+    </p>
+    <p style="margin-top: 1rem;">
+        The background worker checks for new episodes every 30 minutes and processes them
+        automatically. New podcasts are backfilled with episodes from the last 2 weeks.
+    </p>
+</div>
+{% endblock %}

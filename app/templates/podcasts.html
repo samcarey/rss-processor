@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+
+{% block title %}All Podcasts - RSS Podcast Processor{% endblock %}
+
+{% block content %}
+<h2>All Podcasts</h2>
+
+{% if podcasts %}
+<div class="podcast-list">
+    {% for podcast in podcasts %}
+    <a href="{{ url_for('main.podcast_detail', podcast_id=podcast.id) }}" class="podcast-card">
+        {% if podcast.image_url %}
+        <img src="{{ podcast.image_url }}" alt="{{ podcast.title }}" class="podcast-image">
+        {% endif %}
+        <div class="podcast-title">{{ podcast.title }}</div>
+        <div class="podcast-author">{{ podcast.author or 'Unknown Author' }}</div>
+        {% if podcast.processing_status and podcast.processing_status != 'idle' %}
+        <div class="progress-badge">Processing {{ podcast.progress_percentage }}%</div>
+        {% elif podcast.total_episode_count > 0 %}
+        <div class="progress-mini-bar">
+            <div class="progress-mini-fill" style="width: {{ podcast.progress_percentage }}%;"></div>
+        </div>
+        <div style="font-size: 0.75rem; color: #666; margin-top: 0.25rem;">
+            {{ podcast.processed_episode_count }} / {{ podcast.total_episode_count }} episodes
+        </div>
+        {% endif %}
+    </a>
+    {% endfor %}
+</div>
+{% else %}
+<div class="alert alert-info">
+    No podcasts added yet. <a href="{{ url_for('main.index') }}">Add one now</a>.
+</div>
+{% endif %}
+{% endblock %}

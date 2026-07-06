@@ -49,10 +49,10 @@ def test_imports():
         errors.append(f"pydub: {e}")
 
     try:
-        import acoustid
-        print("  ✓ pyacoustid")
+        import numpy
+        print("  ✓ numpy")
     except ImportError as e:
-        errors.append(f"pyacoustid: {e}")
+        errors.append(f"numpy: {e}")
 
     try:
         import yaml
@@ -74,7 +74,7 @@ def test_database():
         print("  ✓ Database initialized")
 
         # Test models
-        from app.models import Podcast, Episode, RemovedSegment, AudioFingerprint
+        from app.models import Podcast, Episode, RemovedSegment
         print("  ✓ Models imported")
 
         return []
@@ -163,6 +163,20 @@ def test_system_dependencies():
     except (subprocess.CalledProcessError, FileNotFoundError):
         errors.append("ffmpeg not found (brew install ffmpeg)")
 
+    # Test for whisper.cpp + model (transcription for ad detection)
+    try:
+        subprocess.run(['whisper-cli', '--help'], capture_output=True, check=True)
+        print("  ✓ whisper-cpp (whisper-cli)")
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        errors.append("whisper-cpp not found (brew install whisper-cpp)")
+
+    import os
+    model = 'data/models/ggml-small.en.bin'
+    if os.path.exists(model) and os.path.getsize(model) > 0:
+        print("  ✓ whisper model")
+    else:
+        errors.append("whisper model missing (see setup.sh or README)")
+
     return errors
 
 
@@ -200,7 +214,7 @@ def main():
         print("\nNext steps:")
         print("  1. source venv/bin/activate")
         print("  2. python run_web.py")
-        print("  3. Visit http://localhost:5000")
+        print("  3. Visit http://localhost:5002")
         sys.exit(0)
 
 

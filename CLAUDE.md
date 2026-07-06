@@ -34,6 +34,18 @@ docstring first; the short version:
    (music decay dominates the chroma) — snapping to the next speech onset
    fixes that. Whisper timestamps bleed across long music, so segment ends
    are less trustworthy than starts.
+5. **Live host speech is preserved** (talk-over pass): the music bed
+   dominates chromaprint, so matched sting regions swallow hosts talking
+   over the fade. Edge segments are released when their words are
+   episode-unique OR match the break-formula whitelist ("We're back" etc. —
+   spoken live each episode even though the text repeats). Two approaches
+   were tried and REJECTED: "short repeated text is live" (released
+   prerecorded ad taglines like "Toyota, let's go places"), and a span-BER
+   same-recording test (sting music dominates chroma; different speech
+   moves BER less than encode noise, 0.044 vs 0.031). Relatedly,
+   script-repeat evidence requires the matched span to read as ad copy —
+   hosts re-speak their show-intro formula near-verbatim weekly, and only
+   ad-language separates that from a host-READ ad script.
 5. **Sanity check**: feeds declare the ad-free duration; the stitched file is
    longer. `total_cut ≈ file_duration - feed_duration + ~40s` (jingle/outro/
    sting cuts are extra, by design — repetitive non-ad audio is cut too).
@@ -134,10 +146,17 @@ Gotchas hit before:
 - Homebrew ffmpeg can break after `svt-av1` bumps (dyld error); fix with
   `brew upgrade ffmpeg`. pydub depends on it, so the whole pipeline stops.
 
-## Current state / next up
+## Current state (2026-07-06)
 
-- Web UI + worker flows verified end-to-end 2026-07-06 (24/25 Playwright
-  checks; the one "failure" was the intentional bad-feed negative test, whose
-  raw-500 page was then replaced by a redirect-with-error-banner).
-- Next planned work: audio analysis and editing features (deeper than
-  fingerprint-duplicate removal).
+- Detection pipeline validated cut-by-cut against transcripts across the
+  full 41-episode corpus (It Could Happen Here + 99% Invisible); every
+  removed excerpt reads as ad/promo/branding and every splice resumes on
+  live content. Budget check holds corpus-wide.
+- Web UI + worker verified with Playwright (including the per-cut review
+  players and splice audition at iPhone viewport).
+- 99% Invisible's feed carries no inserted ads (file == feed duration);
+  zero cuts there is correct, not a bug.
+- Validation method for any detector change: run detection, print
+  BEFORE/INSIDE/AFTER transcript context per cut, read every cut, compare
+  totals to the feed-duration budget, then `scripts/reprocess.py` the
+  changed episodes.

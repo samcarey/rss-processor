@@ -51,6 +51,26 @@ else
     echo -e "${GREEN}✓ ffmpeg found${NC}"
 fi
 
+# Check whisper.cpp (transcription for ad detection)
+if ! command -v whisper-cli &> /dev/null; then
+    echo -e "${YELLOW}! whisper-cpp not found, installing...${NC}"
+    brew install whisper-cpp
+    echo -e "${GREEN}✓ whisper-cpp installed${NC}"
+else
+    echo -e "${GREEN}✓ whisper-cpp found${NC}"
+fi
+
+# Check whisper model
+if [ ! -s "data/models/ggml-small.en.bin" ]; then
+    echo -e "${YELLOW}! whisper model not found, downloading (~465 MB)...${NC}"
+    mkdir -p data/models
+    curl -L -o data/models/ggml-small.en.bin \
+        https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin
+    echo -e "${GREEN}✓ whisper model downloaded${NC}"
+else
+    echo -e "${GREEN}✓ whisper model found${NC}"
+fi
+
 echo ""
 
 # Check for Python 3

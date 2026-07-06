@@ -1,15 +1,22 @@
 # RSS Podcast Processor
 
-Automatically download podcasts, detect and remove duplicate audio segments (ads, intros, outros), and serve cleaned RSS feeds.
+Automatically download podcasts, detect and remove ads/promos/branding, and serve cleaned RSS feeds.
 
 ## Features
 
-- Parse and monitor RSS podcast feeds
-- Download new episodes automatically
-- Detect duplicate audio segments across episodes using audio fingerprinting
-- Remove segments longer than 10 seconds
+- Parse and monitor RSS podcast feeds; download new episodes automatically
+- Ad detection fusing three evidence streams:
+  - whole-episode audio fingerprint matching (chromaprint) — finds the same
+    ad recording at any offset in any pair of episodes, ~0.1s resolution
+  - whisper.cpp transcripts — sponsor-language scoring, repeated-script
+    detection, ad-break bridging, post-outro tail removal
+  - transcript speech boundaries for precise cut edges
+- Preserves live host speech, including words spoken over ad-break music
+  ("We're back", talked-over transitions) and quoted clips reused across
+  episodes — only prerecorded ad/promo/branding audio is cut
 - Generate cleaned RSS feeds for podcast apps
-- Web interface for managing podcasts and viewing removed segments
+- Web interface with per-cut review: what was removed, why, the transcript
+  of the removed audio, and a "hear the splice" audition button
 - Background worker for continuous processing
 
 ## Quick Start
@@ -33,7 +40,10 @@ The script is idempotent and safe to run multiple times.
 
 1. **Install system dependencies (macOS):**
    ```bash
-   brew install chromaprint ffmpeg
+   brew install chromaprint ffmpeg whisper-cpp
+   # whisper model (~465 MB):
+   curl -L -o data/models/ggml-small.en.bin \
+     https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin
    ```
 
 2. **Create virtual environment and install dependencies:**
@@ -109,11 +119,22 @@ For production use, run both the web interface and worker. The web interface let
 
 1. **Feed Monitoring**: Worker checks RSS feeds every 30 minutes for new episodes
 2. **Download**: New episodes are downloaded to `data/original/`
-3. **Fingerprinting**: Audio is analyzed using chromaprint in 10-second windows
-4. **Duplicate Detection**: Fingerprints are compared against previous episodes
-5. **Segment Removal**: Duplicate segments >10s are removed using pydub
+3. **Fingerprint + Transcribe**: Whole-episode raw chromaprint (cached as
+   `.npy`) and whisper.cpp transcript (cached as JSON)
+4. **Ad Detection** (`processor/ad_detector.py`): audio-repeat matching
+   against every other episode of the podcast, with compilation/re-run
+   exclusion, transcript confirmation of low-evidence regions, ad-break
+   bridging, edge extension, speech-boundary snapping, and talk-over
+   preservation of live host speech
+5. **Segment Removal**: Detected regions are cut with pydub; each removed
+   segment stores its method, confidence, match count, and transcript excerpt
 6. **RSS Generation**: Cleaned episodes are served via custom RSS feeds
-7. **Web Access**: Browse podcasts, episodes, and removed segments via web UI
+7. **Web Access**: Browse podcasts, episodes, and review each cut (with
+   removed-audio playback and splice audition) via web UI
+
+Reprocess episodes after detector changes with
+`python scripts/reprocess.py [episode ids]` — cached fingerprints and
+transcripts make recomputation cheap.
 
 ## Configuration
 
@@ -121,7 +142,8 @@ See `config.yaml` for all configuration options including:
 - Storage paths
 - Worker check interval
 - Backfill duration for new podcasts
-- Audio fingerprinting parameters
+- Transcription model/threads and ad-detection overrides
+  (defaults in `processor/ad_detector.py` DEFAULTS)
 
 ## Database Schema
 

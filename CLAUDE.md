@@ -85,6 +85,12 @@ fingerprints/transcripts make recomputation cheap; only re-export costs.
 
 ## Running / deployment (mini4)
 
+Web + worker run as launchd agents (`com.rssprocessor.web` /
+`com.rssprocessor.worker` in `~/Library/LaunchAgents`, RunAtLoad +
+KeepAlive — they survive reboots and crashes). Restart with
+`launchctl kickstart -k gui/501/com.rssprocessor.web` (or `.worker`);
+plists live in the repo root. For ad-hoc runs:
+
 ```bash
 source venv/bin/activate   # python 3.14 venv
 python run_web.py          # web UI on 0.0.0.0:5002

@@ -52,8 +52,6 @@ class Episode(Base):
     removed_segments = relationship('RemovedSegment', back_populates='episode',
                                    foreign_keys='RemovedSegment.episode_id',
                                    cascade='all, delete-orphan')
-    fingerprints = relationship('AudioFingerprint', back_populates='episode',
-                                cascade='all, delete-orphan')
 
     def __repr__(self):
         return f'<Episode {self.title}>'
@@ -71,6 +69,11 @@ class RemovedSegment(Base):
     matched_start_time = Column(Float)           # seconds
     segment_audio_path = Column(String(512))
     created_at = Column(DateTime, default=datetime.utcnow)
+    # detection provenance (new pipeline)
+    method = Column(String(128))          # e.g. audio_repeat+bridge+extend
+    confidence = Column(Float)
+    n_matches = Column(Integer)           # distinct episodes sharing the audio
+    transcript_excerpt = Column(Text)     # what the removed audio said
 
     # Relationships
     episode = relationship('Episode', back_populates='removed_segments',
@@ -79,21 +82,3 @@ class RemovedSegment(Base):
 
     def __repr__(self):
         return f'<RemovedSegment {self.start_time}-{self.end_time}s from Episode {self.episode_id}>'
-
-
-class AudioFingerprint(Base):
-    """Store audio fingerprints for duplicate detection"""
-    __tablename__ = 'audio_fingerprints'
-
-    id = Column(Integer, primary_key=True)
-    episode_id = Column(Integer, ForeignKey('episodes.id'), nullable=False)
-    start_time = Column(Float, nullable=False)  # seconds
-    end_time = Column(Float, nullable=False)    # seconds
-    fingerprint = Column(Text, nullable=False)  # Chromaprint fingerprint as string
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-    # Relationship
-    episode = relationship('Episode', back_populates='fingerprints')
-
-    def __repr__(self):
-        return f'<AudioFingerprint Episode {self.episode_id} @ {self.start_time}s>'

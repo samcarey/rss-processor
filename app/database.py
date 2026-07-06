@@ -52,7 +52,31 @@ def init_db():
     # Create all tables
     Base.metadata.create_all(engine)
 
+    _migrate(engine)
+
     return Session
+
+
+def _migrate(engine):
+    """Additive column migrations (SQLite: create_all won't alter tables)."""
+    from sqlalchemy import text
+    wanted = {
+        'removed_segments': [
+            ("method", "VARCHAR(128)"),
+            ("confidence", "FLOAT"),
+            ("n_matches", "INTEGER"),
+            ("transcript_excerpt", "TEXT"),
+        ],
+    }
+    with engine.connect() as conn:
+        for table, cols in wanted.items():
+            existing = {row[1] for row in conn.execute(text(f"PRAGMA table_info({table})"))}
+            for name, ddl in cols:
+                if name not in existing:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
+        # windowed-fingerprint table replaced by .npy raw fingerprints on disk
+        conn.execute(text("DROP TABLE IF EXISTS audio_fingerprints"))
+        conn.commit()
 
 
 def get_session():

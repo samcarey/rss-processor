@@ -5,24 +5,66 @@ Guidance for Claude Code when working in this repository.
 ## What this is
 
 Self-hosted podcast ad-remover. It watches RSS feeds, downloads new episodes,
-fingerprints the audio (chromaprint/`fpcalc`), removes segments that duplicate
-audio heard in earlier episodes of the same podcast (ads, intros, outros), and
-re-serves a cleaned RSS feed that podcast apps subscribe to.
+detects ad/promo segments, cuts them out, and re-serves a cleaned RSS feed
+that podcast apps subscribe to.
+
+## Ad detection (processor/ad_detector.py)
+
+Fusion of audio-repeat evidence and transcript analysis. Read the module
+docstring first; the short version:
+
+1. **Audio repeats**: whole-episode raw chromaprint (`fpcalc -raw`, one
+   uint32 per ~0.124s, cached as `.npy`) matched pairwise between episodes by
+   offset-voting + bit-error-rate runs (`processor/matching.py`). Finds the
+   same inserted ad anywhere in any two episodes at ~0.1s resolution. Grid
+   windows and exact string equality (the old approach) CANNOT do this — the
+   old detector only ever matched pre-rolls, where grids align by luck.
+2. **Compilation exclusion**: "Weekly" episodes literally contain the week's
+   dailies. Any pair whose matched total exceeds `max_pair_fraction` of the
+   shorter episode is discarded wholesale; single runs > `max_ad_run_seconds`
+   likewise (content reuse, not ads).
+3. **Transcripts** (whisper.cpp `small.en`, Metal, ~15-20x realtime; cached
+   JSON): confirm low-evidence regions (n < `confirm_below_matches` matched
+   episodes — quoted news clips reused across 2-3 episodes look identical to
+   ads otherwise!), find standalone unrepeated ad blocks via sponsor-language
+   markers (`processor/ad_language.py`), bridge ad-text gaps between cuts,
+   extend edges across unrepeated ads, and cut the post-outro tail to EOF.
+4. **Boundary snapping**: cut edges snap to transcript speech boundaries.
+   Ad-break transition stings smear chromaprint matches ~1s past speech onset
+   (music decay dominates the chroma) — snapping to the next speech onset
+   fixes that. Whisper timestamps bleed across long music, so segment ends
+   are less trustworthy than starts.
+5. **Sanity check**: feeds declare the ad-free duration; the stitched file is
+   longer. `total_cut ≈ file_duration - feed_duration + ~40s` (jingle/outro/
+   sting cuts are extra, by design — repetitive non-ad audio is cut too).
+   Logged per episode as the "feed-duration budget".
+
+Every RemovedSegment stores `method` (provenance chain like
+`audio_repeat+bridge+extend`), `confidence`, `n_matches`, and
+`transcript_excerpt` — the episode page shows all of it, with per-cut playback
+of the removed audio AND a "hear the splice" button that seeks the processed
+audio 5s before the cut point.
+
+After detection changes (or to let early episodes benefit from evidence that
+arrived later), run `python scripts/reprocess.py [episode ids]` — cached
+fingerprints/transcripts make recomputation cheap; only re-export costs.
 
 ## Architecture
 
 - `app/` — Flask web UI (`run_web.py`). Routes in `app/routes.py`, SQLAlchemy
-  models in `app/models.py` (Podcast → Episode → RemovedSegment /
-  AudioFingerprint, ORM-level cascades — deletes must go through the ORM, not
-  raw SQL, and SQLite FKs are NOT enforced).
+  models in `app/models.py` (Podcast → Episode → RemovedSegment, ORM-level
+  cascades — deletes must go through the ORM, not raw SQL, and SQLite FKs are
+  NOT enforced). Additive schema migrations live in `app/database.py`.
 - `daemon/` — background worker (`run_worker.py`). Every
   `worker.check_interval_seconds` it: downloads pending episodes, processes
   downloaded-but-unprocessed ones, then re-parses every feed.
-- `processor/` — feed parsing (feedparser), download (requests+pydub),
-  fingerprint/duplicate detection (pyacoustid → `fpcalc`), segment removal
-  (pydub), cleaned-feed generation (feedgen).
+- `processor/` — feed parsing (rss_parser), download (downloader),
+  matching.py / transcripts.py / ad_language.py / ad_detector.py (see above),
+  audio_processor.py (wires detection to DB+files, cuts with pydub),
+  cleaned-feed generation (rss_generator, feedgen).
 - `data/` (gitignored) — SQLite DB (WAL mode) + `original/`, `processed/`,
-  `segments/` audio. Paths are stored config-relative (`./data/...`); resolve
+  `segments/`, `fingerprints/` (.npy), `transcripts/` (.json), `models/`
+  (whisper ggml). Paths are stored config-relative (`./data/...`); resolve
   them with `processor.rss_generator.resolve_storage_path` — never assume cwd.
 - Web and worker are separate processes sharing the SQLite DB. The web UI can
   also run one worker cycle in a background thread (`/api/trigger_worker`), so
@@ -36,6 +78,11 @@ source venv/bin/activate   # python 3.14 venv
 python run_web.py          # web UI on 0.0.0.0:5002
 python run_worker.py       # background worker
 ```
+
+System deps: `brew install ffmpeg chromaprint whisper-cpp`; whisper model at
+`data/models/ggml-small.en.bin` (from huggingface ggerganov/whisper.cpp).
+Binaries are invoked by absolute path (`/opt/homebrew/bin/...`) because
+detached/nohup shells here have an unusable PATH — keep it that way.
 
 - **Ports**: web is on **5002**. 5000 is macOS AirPlay, 5001 is the
   bad-spaceship game server. Don't move it without checking `lsof`.
@@ -60,9 +107,11 @@ python run_worker.py       # background worker
   (there's a 1400-episode daily podcast in the DB — this is not hypothetical).
 - `add_podcast` inserts episode rows (within the window) immediately so the
   podcast page isn't empty; downloading/processing stays in the worker.
-- Duplicate detection only compares against *earlier* episodes
-  (`pub_date <` current) of the *same* podcast, and only removes matches ≥
-  `audio.min_duplicate_duration_seconds`.
+- Detection compares against ALL other episodes of the same podcast that have
+  cached fingerprints (not just earlier ones) — an ad is cut from every
+  episode carrying it, including its first appearance.
+- Transcription failure is non-fatal: detection degrades to pure audio-repeat
+  evidence (with the stricter n >= confirm_below_matches bar).
 - feedgen needs timezone-aware datetimes; `pub_date` is stored naive-UTC, so
   attach `timezone.utc` before `fe.published()` (see `rss_generator.py`).
 

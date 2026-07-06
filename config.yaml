@@ -3,6 +3,8 @@ storage:
   original: ./data/original
   processed: ./data/processed
   segments: ./data/segments
+  fingerprints: ./data/fingerprints  # raw chromaprint .npy per episode
+  transcripts: ./data/transcripts    # whisper full-JSON per episode
   database: ./data/rss-processor.db
 
 web:
@@ -17,6 +19,14 @@ worker:
   backfill_days: 14
 
 audio:
-  fingerprint_window_seconds: 10
-  min_duplicate_duration_seconds: 10
   max_workers: 2
+
+transcription:
+  model_path: ./data/models/ggml-small.en.bin  # whisper.cpp model
+  threads: 6
+
+# Ad detection tuning; defaults live in processor/ad_detector.py (DEFAULTS).
+# Override any key here, e.g.:
+#   max_pair_fraction: 0.35   # compilation-relationship exclusion
+#   confirm_below_matches: 4  # low-evidence regions need transcript confirm
+ad_detection: {}

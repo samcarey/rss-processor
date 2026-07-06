@@ -162,9 +162,18 @@ def episode_detail(episode_id):
     # Calculate total time saved
     total_saved = sum(seg.duration for seg in removed_segments)
 
+    # Where each cut lands in the PROCESSED audio (for splice audition):
+    # original start minus everything already removed before it.
+    splice_times = []
+    removed_so_far = 0.0
+    for seg in removed_segments:
+        splice_times.append(max(seg.start_time - removed_so_far, 0.0))
+        removed_so_far += seg.duration
+
     return render_template('episode_detail.html',
                          episode=episode,
                          removed_segments=removed_segments,
+                         segments_with_splices=list(zip(removed_segments, splice_times)),
                          total_saved=total_saved)
 
 
@@ -239,7 +248,11 @@ def delete_podcast(podcast_id):
         return "Podcast not found", 404
 
     try:
-        # Collect audio files before the rows go away
+        # Collect files before the rows go away (audio + cached
+        # fingerprints/transcripts keyed by episode id)
+        from processor.matching import fingerprint_path
+        from processor.transcripts import transcript_path
+        config = current_app.config['APP_CONFIG']
         audio_files = []
         for episode in podcast.episodes:
             audio_files.extend(p for p in (episode.original_audio_path,
@@ -247,8 +260,10 @@ def delete_podcast(podcast_id):
             audio_files.extend(seg.segment_audio_path
                                for seg in episode.removed_segments
                                if seg.segment_audio_path)
+            audio_files.append(fingerprint_path(config, episode.id))
+            audio_files.append(transcript_path(config, episode.id))
 
-        # Delete will cascade to episodes, segments, and fingerprints
+        # Delete will cascade to episodes and segments
         session.delete(podcast)
         session.commit()
 

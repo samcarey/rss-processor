@@ -42,9 +42,10 @@ DEFAULTS = {
     "confirm_below_matches": 4,
     "bridge_max_gap_seconds": 90.0,
     # a gap this short between two confirmed ad cuts is bridged without a
-    # text test: sub-45s islands of "content" between ads don't exist, but
-    # ads with no recognizable marker phrases do.
-    "bridge_free_gap_seconds": 45.0,
+    # text test: ad breaks are structural units minutes apart, so a sub-90s
+    # island between two cuts is more ads (possibly with no recognizable
+    # marker phrases), not content.
+    "bridge_free_gap_seconds": 90.0,
     "extend_lookahead_seconds": 75.0,
     "extend_cap_seconds": 300.0,
     "min_standalone_seconds": 20.0,

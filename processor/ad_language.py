@@ -22,6 +22,12 @@ STRONG_PHRASES = [
     "member finra", "not financial advice", "results may vary",
     "always drive responsibly", "for feature availability",
     "visit capella.edu", "cancel anytime", "no purchase necessary",
+    # betting / age-gated ads
+    "bonus bets", "responsible gaming", "gambling problem",
+    "minimum odds", "21 and over", "must be 21", "void in ontario",
+    "void where prohibited", "limited time offer", "new customers",
+    # podcast promo intros
+    "this week on",
     # podcast cross-promos
     "on the iheartradio app", "on the iheart radio app",
     "wherever you get your podcasts", "wherever you listen to podcasts",

@@ -53,7 +53,7 @@ The script is idempotent and safe to run multiple times.
 Edit `config.yaml` to set your Tailscale hostname in `web.base_url` for remote access:
 ```yaml
 web:
-  base_url: http://[your-tailscale-hostname]:5000
+  base_url: https://mini4.tail350dd8.ts.net:9444
 ```
 
 ## Usage
@@ -69,7 +69,7 @@ source venv/bin/activate
 python run_web.py
 ```
 
-Access at http://localhost:5000 (or your Tailscale hostname)
+Access at http://localhost:5002 (or your Tailscale hostname)
 
 ### Running the Background Worker
 

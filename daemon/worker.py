@@ -63,12 +63,12 @@ def check_podcast(podcast, config, session):
         podcast.author = feed_data['podcast']['author']
         podcast.last_checked_at = datetime.utcnow()
 
-        # Determine backfill cutoff if this is a new podcast
-        backfill_cutoff = None
-        if not podcast.last_checked_at or len(podcast.episodes) == 0:
-            backfill_days = config['worker']['backfill_days']
-            backfill_cutoff = datetime.utcnow() - timedelta(days=backfill_days)
-            logger.info(f"New podcast, backfilling {backfill_days} days")
+        # Never add episodes older than the backfill window. This bounds both
+        # initial backfill and catch-up after the worker has been down a while;
+        # without it, a stale podcast triggers an unbounded download of every
+        # episode published since the last check.
+        backfill_days = config['worker']['backfill_days']
+        backfill_cutoff = datetime.utcnow() - timedelta(days=backfill_days)
 
         # Process episodes from the feed
         new_episodes = []

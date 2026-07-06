@@ -7,8 +7,10 @@ storage:
 
 web:
   host: 0.0.0.0
-  port: 5001
-  base_url: http://100.92.152.37:5001  # Tailscale IP address
+  port: 5002  # 5000 = macOS AirPlay, 5001 = bad-spaceship server
+  # Served to the tailnet via `tailscale serve --bg --https=9444 http://127.0.0.1:5002`
+  # (direct :5002 is blocked by the macOS application firewall for this python)
+  base_url: https://mini4.tail350dd8.ts.net:9444
 
 worker:
   check_interval_seconds: 1800  # 30 minutes

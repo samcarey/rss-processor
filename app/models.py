@@ -52,6 +52,8 @@ class Episode(Base):
     removed_segments = relationship('RemovedSegment', back_populates='episode',
                                    foreign_keys='RemovedSegment.episode_id',
                                    cascade='all, delete-orphan')
+    fingerprints = relationship('AudioFingerprint', back_populates='episode',
+                                cascade='all, delete-orphan')
 
     def __repr__(self):
         return f'<Episode {self.title}>'
@@ -91,7 +93,7 @@ class AudioFingerprint(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # Relationship
-    episode = relationship('Episode')
+    episode = relationship('Episode', back_populates='fingerprints')
 
     def __repr__(self):
         return f'<AudioFingerprint Episode {self.episode_id} @ {self.start_time}s>'

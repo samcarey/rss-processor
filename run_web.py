@@ -3,6 +3,7 @@
 
 from app import create_app
 import logging
+import os
 
 # Configure logging
 logging.basicConfig(
@@ -17,5 +18,9 @@ if __name__ == '__main__':
     host = config['web']['host']
     port = config['web']['port']
 
+    # Debug mode exposes the Werkzeug debugger; never enable it when bound to
+    # 0.0.0.0 (reachable by the whole tailnet). Opt in with FLASK_DEBUG=1.
+    debug = os.environ.get('FLASK_DEBUG', '0') == '1'
+
     print(f"Starting RSS Processor web interface on {host}:{port}")
-    app.run(host=host, port=port, debug=True)
+    app.run(host=host, port=port, debug=debug, threaded=True)

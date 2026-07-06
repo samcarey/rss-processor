@@ -2,8 +2,8 @@ from flask import Blueprint, render_template, request, redirect, url_for, send_f
 from app.database import get_session
 from app.models import Podcast, Episode, RemovedSegment
 from processor.rss_parser import parse_feed
-from processor.rss_generator import generate_feed, generate_feed_url
-from datetime import datetime
+from processor.rss_generator import generate_feed, generate_feed_url, resolve_storage_path
+from datetime import datetime, timedelta
 import logging
 import os
 
@@ -34,7 +34,8 @@ def index():
         podcast.processed_episode_count = processed
         podcast.progress_percentage = round((processed / total * 100) if total > 0 else 0, 1)
 
-    return render_template('index.html', podcasts=podcasts)
+    return render_template('index.html', podcasts=podcasts,
+                           error=request.args.get('error'))
 
 
 @bp.route('/add_podcast', methods=['POST'])
@@ -68,14 +69,35 @@ def add_podcast():
         session.add(podcast)
         session.commit()
 
-        logger.info(f"Added podcast: {podcast.title} (ID: {podcast.id})")
+        # Insert episode records right away (within the backfill window) so the
+        # podcast page isn't empty until the worker's next cycle. Downloading
+        # and processing remain the worker's job.
+        config = current_app.config['APP_CONFIG']
+        backfill_cutoff = datetime.utcnow() - timedelta(days=config['worker']['backfill_days'])
+        added = 0
+        for episode_data in feed_data['episodes']:
+            if episode_data.get('pub_date') and episode_data['pub_date'] < backfill_cutoff:
+                continue
+            session.add(Episode(
+                podcast_id=podcast.id,
+                guid=episode_data['guid'],
+                title=episode_data['title'],
+                description=episode_data['description'],
+                pub_date=episode_data['pub_date'],
+                original_audio_url=episode_data['audio_url'],
+                duration_seconds=episode_data.get('duration')
+            ))
+            added += 1
+        session.commit()
+
+        logger.info(f"Added podcast: {podcast.title} (ID: {podcast.id}) with {added} episodes")
 
         return redirect(url_for('main.podcast_detail', podcast_id=podcast.id))
 
     except Exception as e:
         session.rollback()
         logger.error(f"Failed to add podcast: {e}")
-        return f"Failed to add podcast: {str(e)}", 500
+        return redirect(url_for('main.index', error=f"Failed to add podcast: {e}"))
 
 
 @bp.route('/podcasts')
@@ -105,8 +127,8 @@ def podcast_detail(podcast_id):
         return "Podcast not found", 404
 
     # Only show episodes that are downloaded or within backfill window
-    from datetime import timedelta
-    backfill_cutoff = datetime.utcnow() - timedelta(days=14)
+    config = current_app.config['APP_CONFIG']
+    backfill_cutoff = datetime.utcnow() - timedelta(days=config['worker']['backfill_days'])
 
     episodes = session.query(Episode).filter(
         Episode.podcast_id == podcast_id
@@ -155,20 +177,14 @@ def play_segment(segment_id):
     if not segment or not segment.segment_audio_path:
         return "Segment not found", 404
 
-    # Convert relative path to absolute path (relative to project root)
-    if segment.segment_audio_path.startswith('./'):
-        audio_path = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)),
-            segment.segment_audio_path[2:]
-        )
-    else:
-        audio_path = segment.segment_audio_path
+    audio_path = resolve_storage_path(segment.segment_audio_path)
 
     if not os.path.exists(audio_path):
         logger.error(f"Segment audio file not found: {audio_path}")
         return "Audio file not found", 404
 
-    return send_file(audio_path, mimetype='audio/mpeg')
+    # conditional=True enables Range requests (required by iOS Safari audio)
+    return send_file(audio_path, mimetype='audio/mpeg', conditional=True)
 
 
 @bp.route('/feed/<int:podcast_id>.xml')
@@ -203,20 +219,14 @@ def serve_audio(episode_id):
     if not episode or not episode.processed_audio_path:
         return "Episode not found", 404
 
-    # Convert relative path to absolute path (relative to project root)
-    if episode.processed_audio_path.startswith('./'):
-        audio_path = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)),
-            episode.processed_audio_path[2:]
-        )
-    else:
-        audio_path = episode.processed_audio_path
+    audio_path = resolve_storage_path(episode.processed_audio_path)
 
     if not os.path.exists(audio_path):
         logger.error(f"Processed audio file not found: {audio_path}")
         return "Audio file not found", 404
 
-    return send_file(audio_path, mimetype='audio/mpeg')
+    # conditional=True enables Range requests (required by iOS Safari audio)
+    return send_file(audio_path, mimetype='audio/mpeg', conditional=True)
 
 
 @bp.route('/delete_podcast/<int:podcast_id>', methods=['POST'])
@@ -229,10 +239,28 @@ def delete_podcast(podcast_id):
         return "Podcast not found", 404
 
     try:
-        # Delete will cascade to episodes and segments
+        # Collect audio files before the rows go away
+        audio_files = []
+        for episode in podcast.episodes:
+            audio_files.extend(p for p in (episode.original_audio_path,
+                                           episode.processed_audio_path) if p)
+            audio_files.extend(seg.segment_audio_path
+                               for seg in episode.removed_segments
+                               if seg.segment_audio_path)
+
+        # Delete will cascade to episodes, segments, and fingerprints
         session.delete(podcast)
         session.commit()
-        logger.info(f"Deleted podcast: {podcast.title}")
+
+        for path in audio_files:
+            path = resolve_storage_path(path)
+            try:
+                if os.path.exists(path):
+                    os.remove(path)
+            except OSError as e:
+                logger.warning(f"Could not remove {path}: {e}")
+
+        logger.info(f"Deleted podcast: {podcast.title} ({len(audio_files)} audio files)")
         return redirect(url_for('main.index'))
     except Exception as e:
         session.rollback()

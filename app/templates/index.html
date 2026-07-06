@@ -3,6 +3,11 @@
 {% block title %}Home - RSS Podcast Processor{% endblock %}
 
 {% block content %}
+{% if error %}
+<div class="alert" style="background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb;">
+    {{ error }}
+</div>
+{% endif %}
 <div class="card">
     <div style="display: flex; justify-content: space-between; align-items: start; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem;">
         <h2 style="margin: 0;">Add New Podcast</h2>
@@ -100,15 +105,12 @@ function triggerWorker() {
 </div>
 {% endif %}
 
+{% if podcasts | selectattr('processing_status') | rejectattr('processing_status', 'equalto', 'idle') | list %}
 <script>
-// Auto-refresh if any podcast is being processed
-{% for podcast in podcasts %}
-    {% if podcast.processing_status and podcast.processing_status != 'idle' %}
-        setTimeout(function() {
-            location.reload();
-        }, 5000);  // Refresh every 5 seconds
-        break;
-    {% endif %}
-{% endfor %}
+// Auto-refresh while any podcast is being processed
+setTimeout(function() {
+    location.reload();
+}, 5000);
 </script>
+{% endif %}
 {% endblock %}

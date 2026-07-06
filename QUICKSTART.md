@@ -38,7 +38,7 @@ source venv/bin/activate
 python run_web.py
 ```
 
-Visit http://localhost:5000
+Visit http://localhost:5002
 
 **Terminal 2 - Background Worker:**
 
@@ -49,7 +49,7 @@ python run_worker.py
 
 ## 4. Add Your First Podcast
 
-1. Open http://localhost:5000 in your browser
+1. Open http://localhost:5002 in your browser
 2. Paste an RSS feed URL (e.g., from your favorite podcast)
 3. Click "Add Podcast"
 4. The worker will automatically download and process episodes
@@ -65,12 +65,12 @@ python run_worker.py
 1. Edit `config.yaml` and update `web.base_url`:
    ```yaml
    web:
-     base_url: http://your-tailscale-hostname:5000
+     base_url: https://your-tailscale-hostname:9444
    ```
 
 2. Restart the web interface
 
-3. Access from your phone at `http://your-tailscale-hostname:5000`
+3. Access from your phone at `https://your-tailscale-hostname:9444`
 
 ## System Service (Optional)
 

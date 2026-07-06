@@ -13,6 +13,30 @@ SHINGLE = 10       # words per shingle
 MIN_RUN_WORDS = 18  # minimal common run to count as evidence
 
 
+def word_shingle_set(tx_segments, n=4):
+    """All word n-grams in a transcript, for cross-episode text lookups."""
+    out = set()
+    if not tx_segments:
+        return out
+    for _, _, t in tx_segments:
+        toks = re.findall(r"[a-z0-9']+", t.lower())
+        for i in range(len(toks) - n + 1):
+            out.add(" ".join(toks[i:i + n]))
+    return out
+
+
+def text_repeats_elsewhere(text, other_shingles, n=4, threshold=0.5):
+    """True if a span of transcript text also occurs in other episodes
+    (prerecorded/formulaic), False if it is episode-specific live speech.
+    Word n-gram overlap tolerates whisper's transcription variance."""
+    toks = re.findall(r"[a-z0-9']+", text.lower())
+    grams = [" ".join(toks[i:i + n]) for i in range(len(toks) - n + 1)]
+    if not grams:
+        return True  # too short to judge; treat as repeated
+    found = sum(1 for g in grams if g in other_shingles)
+    return found / len(grams) >= threshold
+
+
 def words_with_times(tx_segments):
     """Flatten transcript segments to (word, approx_time) pairs."""
     out = []

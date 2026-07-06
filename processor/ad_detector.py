@@ -170,7 +170,16 @@ def detect_ads(target, others, config):
         kept.extend(_standalone_blocks(tx, kept, p))
 
     # --- 5+6. bridge gaps and extend edges through unrepeated ad text
-    cuts = _assemble(kept, tx, dur, p, evidence)
+    # exclude compilation-related episodes: a weekly contains the daily's
+    # text verbatim, which would make ALL of the daily's speech look
+    # "repeated elsewhere" and defeat talk-over detection.
+    other_shingles = set()
+    if tx:
+        from processor.script_repeat import word_shingle_set
+        for other in others:
+            if other.get("tx") and other["id"] not in excluded_ids:
+                other_shingles |= word_shingle_set(other["tx"])
+    cuts = _assemble(kept, tx, dur, p, evidence, other_shingles)
 
     total_cut = sum(c["end"] - c["start"] for c in cuts)
     budget = None
@@ -208,7 +217,7 @@ def _standalone_blocks(tx, kept, p):
     return blocks
 
 
-def _assemble(regions, tx, dur, p, evidence=None):
+def _assemble(regions, tx, dur, p, evidence=None, other_shingles=None):
     """Bridge ad-text gaps, extend edges, trim weak edges, clamp, format."""
     regions = sorted(regions, key=lambda r: r["start"])
 
@@ -304,6 +313,15 @@ def _assemble(regions, tx, dur, p, evidence=None):
         for r in final:
             _snap_to_speech(r, tx, dur)
 
+    # talk-over preservation: the music bed dominates chromaprint, so a
+    # matched sting region can swallow the host speaking over the fade.
+    # Prerecorded speech has the same WORDS wherever the audio repeats;
+    # live talk-over is textually unique — release unique-speech segments
+    # from the cut edges inward.
+    if tx and other_shingles:
+        for r in final:
+            _preserve_talkover(r, tx, other_shingles)
+
     cuts = []
     for r in final:
         if r["end"] - r["start"] < p["min_cut_seconds"]:
@@ -382,6 +400,48 @@ def _trim_edges(r, tx, evidence, dur, max_trim=20.0):
         trimmed += e - s
         r["start"] = e
         inside.pop(0)
+
+
+def _preserve_talkover(r, tx, other_shingles, max_trim=20.0):
+    """Release episode-specific speech at the cut edges.
+
+    Walk transcript segments inward from each edge; a segment whose words
+    neither repeat in other episodes nor read as ad copy is live host speech
+    over the music bed — move the edge past it (releasing a live segment
+    always shrinks the cut, so this can only err toward keeping audio).
+    """
+    from processor.ad_language import is_ad_text
+    from processor.script_repeat import text_repeats_elsewhere
+
+    def is_live(text):
+        return (len(text.split()) >= 4
+                and not strong_hits(text)
+                and not is_ad_text(text)
+                and not text_repeats_elsewhere(text, other_shingles))
+
+    overlapping = [seg for seg in tx
+                   if seg[1] > r["start"] + 0.2 and seg[0] < r["end"] - 0.2]
+
+    trimmed = 0.0
+    for s, e, t in overlapping:
+        if s >= r["end"] or trimmed >= max_trim:
+            break
+        if e - max(s, r["start"]) > 0.3 and is_live(t):
+            trimmed += min(e, r["end"]) - r["start"]
+            r["start"] = min(e, r["end"])
+            r["method"] = _join_methods(r["method"], "talkover_trim")
+        else:
+            break
+    trimmed = 0.0
+    for s, e, t in reversed(overlapping):
+        if e <= r["start"] or trimmed >= max_trim:
+            break
+        if min(e, r["end"]) - s > 0.3 and is_live(t):
+            trimmed += r["end"] - max(s, r["start"])
+            r["end"] = max(s, r["start"])
+            r["method"] = _join_methods(r["method"], "talkover_trim")
+        else:
+            break
 
 
 def _snap_to_speech(r, tx, dur, snap_max=2.5):

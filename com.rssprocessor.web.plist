@@ -3,12 +3,12 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.rssprocessor.worker</string>
+    <string>com.rssprocessor.web</string>
 
     <key>ProgramArguments</key>
     <array>
         <string>/Users/sccarey/projects/rss-processor/venv/bin/python</string>
-        <string>/Users/sccarey/projects/rss-processor/run_worker.py</string>
+        <string>/Users/sccarey/projects/rss-processor/run_web.py</string>
     </array>
 
     <key>WorkingDirectory</key>
@@ -21,10 +21,10 @@
     <true/>
 
     <key>StandardOutPath</key>
-    <string>/Users/sccarey/projects/rss-processor/worker.log</string>
+    <string>/Users/sccarey/projects/rss-processor/web.log</string>
 
     <key>StandardErrorPath</key>
-    <string>/Users/sccarey/projects/rss-processor/worker.log</string>
+    <string>/Users/sccarey/projects/rss-processor/web.log</string>
 
     <key>EnvironmentVariables</key>
     <dict>

@@ -109,6 +109,8 @@ def detect_ads(target, others, config):
     # --- 1b. script-repeat evidence: the same words across episodes catches
     # re-read ads (different recordings) and corroborates marker-less ads.
     # The same compilation guards apply — weeklies share the dailies' text.
+    # Each interval must READ as ad copy: hosts also re-speak their intro
+    # formula near-verbatim every episode, and live speech is kept.
     if tx:
         from processor.script_repeat import words_with_times, matched_intervals
         t_words = words_with_times(tx)
@@ -126,7 +128,8 @@ def detect_ads(target, others, config):
             if total > p["max_pair_fraction"] * shorter:
                 continue
             for s, e in ivs:
-                if e - s <= p["max_ad_run_seconds"]:
+                if e - s <= p["max_ad_run_seconds"] \
+                        and is_ad_text(text_between(tx, s, e)):
                     evidence.append((s, e, other["id"], None))
 
     # --- 2. merge into regions with distinct-episode counts
@@ -410,14 +413,24 @@ def _preserve_talkover(r, tx, other_shingles, max_trim=20.0):
     over the music bed — move the edge past it (releasing a live segment
     always shrinks the cut, so this can only err toward keeping audio).
     """
+    import re
     from processor.ad_language import is_ad_text
     from processor.script_repeat import text_repeats_elsewhere
 
     def is_live(text):
-        return (len(text.split()) >= 4
-                and not strong_hits(text)
-                and not is_ad_text(text)
-                and not text_repeats_elsewhere(text, other_shingles))
+        t = text.strip()
+        # whisper's non-speech annotations: "(upbeat music)", "♪ lyrics ♪"
+        if not t or re.fullmatch(r"[\(\[♪].*[\)\]♪]", t, re.S):
+            return False
+        if strong_hits(t) or is_ad_text(t):
+            return False
+        # break formulas are spoken live by the hosts each episode even
+        # though the words repeat across episodes — always keep them.
+        # (A generic "short repeated text is live" rule instead of this
+        # whitelist released prerecorded ad taglines at block edges.)
+        if len(t.split()) <= 20 and _BREAK_FORMULA.search(t.lower()):
+            return True
+        return not text_repeats_elsewhere(t, other_shingles)
 
     overlapping = [seg for seg in tx
                    if seg[1] > r["start"] + 0.2 and seg[0] < r["end"] - 0.2]
@@ -442,6 +455,16 @@ def _preserve_talkover(r, tx, other_shingles, max_trim=20.0):
             r["method"] = _join_methods(r["method"], "talkover_trim")
         else:
             break
+
+
+import re as _re
+
+_BREAK_FORMULA = _re.compile(
+    r"\b(we('| a)?re back|we are back|welcome back|back to the (show|episode)|"
+    r"and now back to|when we (come|get) back|we('|w)?ll be (right )?back|"
+    r"be right back|after (the|this) break|after these messages|"
+    r"(go|going|let's go)( on| to)? a break|take a (quick )?break|"
+    r"return for (a few )?more|right after this)\b")
 
 
 def _snap_to_speech(r, tx, dur, snap_max=2.5):

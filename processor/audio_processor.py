@@ -75,6 +75,8 @@ def process_episode(episode, config, podcast=None):
             "id": episode.id, "fp": fp, "tx": tx,
             "file_duration": len(fp) / FP_RATE + 2.0,
             "feed_duration": episode.duration_seconds,
+            "show": (podcast or episode.podcast).title,
+            "title": episode.title,
         }
         cuts, report = detect_ads(target, others, config)
         logger.info(f"Detected {len(cuts)} ad regions, {report['total_cut']:.0f}s "

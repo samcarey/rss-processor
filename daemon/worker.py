@@ -21,6 +21,8 @@ logging.basicConfig(
     ]
 )
 
+from processor.versions import excluded
+
 logger = logging.getLogger(__name__)
 
 # Global flag for graceful shutdown
@@ -80,6 +82,10 @@ def check_podcast(podcast, config, session):
             ).first()
 
             if existing:
+                continue
+
+            # Per-feed title exclusions (feed_versions.yaml exclude_titles)
+            if excluded(podcast.feed_url, episode_data['title']):
                 continue
 
             # For new podcasts, only add recent episodes
@@ -211,6 +217,7 @@ def download_pending_episodes(config, session):
         Episode.pub_date >= backfill_cutoff
     ).order_by(Episode.pub_date).all()
 
+    pending = [e for e in pending if not excluded(e.podcast.feed_url, e.title)]
     if pending:
         logger.info(f"Found {len(pending)} episodes to download")
 
@@ -277,6 +284,7 @@ def process_unprocessed_episodes(config, session):
         Episode.processed == False
     ).order_by(Episode.pub_date).all()
 
+    unprocessed = [e for e in unprocessed if not excluded(e.podcast.feed_url, e.title)]
     if unprocessed:
         logger.info(f"Found {len(unprocessed)} unprocessed episodes")
 

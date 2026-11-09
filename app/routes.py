@@ -7,6 +7,10 @@ from datetime import datetime, timedelta
 import logging
 import os
 
+# OBSOLETE (2026-11-03): the HTML UI pages are no longer used. The workflow is
+# now CLI-driven (scripts/add_feed.py, scripts/status.py). Only /feed/<id>.xml,
+# /audio/<id> and /image/<id>-v<X>.jpg are live -- podcast apps fetch them, so the web server must
+# keep running. Everything else here is kept but unmaintained.
 bp = Blueprint('main', __name__)
 logger = logging.getLogger(__name__)
 
@@ -49,49 +53,11 @@ def add_podcast():
     session = get_session()
 
     try:
-        # Check if podcast already exists
-        existing = session.query(Podcast).filter_by(feed_url=feed_url).first()
-        if existing:
-            return redirect(url_for('main.podcast_detail', podcast_id=existing.id))
-
-        # Parse the feed to get metadata
-        logger.info(f"Adding new podcast: {feed_url}")
-        feed_data = parse_feed(feed_url)
-
-        # Create podcast record
-        podcast = Podcast(
-            feed_url=feed_url,
-            title=feed_data['podcast']['title'],
-            description=feed_data['podcast']['description'],
-            image_url=feed_data['podcast']['image_url'],
-            author=feed_data['podcast']['author']
-        )
-        session.add(podcast)
-        session.commit()
-
-        # Insert episode records right away (within the backfill window) so the
-        # podcast page isn't empty until the worker's next cycle. Downloading
-        # and processing remain the worker's job.
+        from processor.subscribe import add_podcast as subscribe
         config = current_app.config['APP_CONFIG']
-        backfill_cutoff = datetime.utcnow() - timedelta(days=config['worker']['backfill_days'])
-        added = 0
-        for episode_data in feed_data['episodes']:
-            if episode_data.get('pub_date') and episode_data['pub_date'] < backfill_cutoff:
-                continue
-            session.add(Episode(
-                podcast_id=podcast.id,
-                guid=episode_data['guid'],
-                title=episode_data['title'],
-                description=episode_data['description'],
-                pub_date=episode_data['pub_date'],
-                original_audio_url=episode_data['audio_url'],
-                duration_seconds=episode_data.get('duration')
-            ))
-            added += 1
-        session.commit()
-
-        logger.info(f"Added podcast: {podcast.title} (ID: {podcast.id}) with {added} episodes")
-
+        podcast, created = subscribe(session, feed_url, config['worker']['backfill_days'])
+        if created:
+            logger.info(f"Added podcast: {podcast.title} (ID: {podcast.id})")
         return redirect(url_for('main.podcast_detail', podcast_id=podcast.id))
 
     except Exception as e:
@@ -219,6 +185,29 @@ def serve_feed(podcast_id):
         return "Failed to generate feed", 500
 
 
+@bp.route('/image/<int:podcast_id>-v<int:version>.jpg')
+@bp.route('/image/<int:podcast_id>-v<int:version>-s<int:style>.jpg')
+def serve_image(podcast_id, version, style=None):
+    """Show artwork stamped with the processor-version badge."""
+    from processor.artwork import badged_artwork_path
+    session = get_session()
+    podcast = session.get(Podcast, podcast_id)
+    if not podcast or not podcast.image_url:
+        return "Podcast not found", 404
+    from processor.versions import get_version
+    current = get_version(podcast.feed_url)
+    if version != current:  # public route: never render arbitrary versions
+        from processor.rss_generator import load_config
+        from processor.artwork import BADGE_STYLE
+        return redirect(f"{load_config()['web']['base_url']}/image/{podcast_id}-v{current}-s{BADGE_STYLE}.jpg")
+    try:
+        path = badged_artwork_path(podcast, version)
+    except Exception as e:
+        logger.error(f"Artwork for podcast {podcast_id} failed: {e}")
+        return redirect(podcast.image_url)
+    return send_file(path, mimetype='image/jpeg', conditional=True, max_age=86400)
+
+
 @bp.route('/audio/<int:episode_id>')
 def serve_audio(episode_id):
     """Serve processed audio file"""
@@ -248,34 +237,9 @@ def delete_podcast(podcast_id):
         return "Podcast not found", 404
 
     try:
-        # Collect files before the rows go away (audio + cached
-        # fingerprints/transcripts keyed by episode id)
-        from processor.matching import fingerprint_path
-        from processor.transcripts import transcript_path
-        config = current_app.config['APP_CONFIG']
-        audio_files = []
-        for episode in podcast.episodes:
-            audio_files.extend(p for p in (episode.original_audio_path,
-                                           episode.processed_audio_path) if p)
-            audio_files.extend(seg.segment_audio_path
-                               for seg in episode.removed_segments
-                               if seg.segment_audio_path)
-            audio_files.append(fingerprint_path(config, episode.id))
-            audio_files.append(transcript_path(config, episode.id))
-
-        # Delete will cascade to episodes and segments
-        session.delete(podcast)
-        session.commit()
-
-        for path in audio_files:
-            path = resolve_storage_path(path)
-            try:
-                if os.path.exists(path):
-                    os.remove(path)
-            except OSError as e:
-                logger.warning(f"Could not remove {path}: {e}")
-
-        logger.info(f"Deleted podcast: {podcast.title} ({len(audio_files)} audio files)")
+        from processor.subscribe import remove_podcast
+        n = remove_podcast(session, current_app.config['APP_CONFIG'], podcast)
+        logger.info(f"Deleted podcast: {podcast.title} ({n} files)")
         return redirect(url_for('main.index'))
     except Exception as e:
         session.rollback()

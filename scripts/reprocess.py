@@ -23,6 +23,8 @@ from processor.rss_generator import resolve_storage_path
 
 
 def main():
+    import logging
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(name)s %(message)s')
     with open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                            'config.yaml')) as f:
         config = yaml.safe_load(f)

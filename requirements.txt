@@ -10,3 +10,4 @@ numpy>=2.0  # raw fingerprint matching (np.bitwise_count)
 # System dependencies (brew): ffmpeg, chromaprint (fpcalc), whisper-cpp
 # Whisper model: download ggml-small.en.bin from
 # https://huggingface.co/ggerganov/whisper.cpp to data/models/
+Pillow>=11.0  # version badge on served artwork

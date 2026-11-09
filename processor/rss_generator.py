@@ -18,10 +18,19 @@ def resolve_storage_path(path):
 
 
 def load_config():
-    """Load configuration"""
-    config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config.yaml')
-    with open(config_path, 'r') as f:
-        return yaml.safe_load(f)
+    """Load config.yaml, with web.* overridden by gitignored config.local.yaml.
+
+    The public (Funnel) base_url contains a secret path segment, and the repo
+    is public, so it lives only in config.local.yaml.
+    """
+    root = os.path.dirname(os.path.dirname(__file__))
+    with open(os.path.join(root, 'config.yaml'), 'r') as f:
+        config = yaml.safe_load(f)
+    local = os.path.join(root, 'config.local.yaml')
+    if os.path.exists(local):
+        with open(local, 'r') as f:
+            config['web'].update((yaml.safe_load(f) or {}).get('web', {}))
+    return config
 
 
 def generate_feed(podcast, episodes):
@@ -43,7 +52,9 @@ def generate_feed(podcast, episodes):
 
         # Create feed generator
         fg = FeedGenerator()
-        fg.title(podcast.title or 'Unknown Podcast')
+        from processor.versions import get_version, excluded
+        version = get_version(podcast.feed_url)
+        fg.title(f"(v{version}) {podcast.title or 'Unknown Podcast'}")
         fg.description(podcast.description or '')
         fg.link(href=generate_feed_url(podcast.id), rel='self')
         fg.link(href=podcast.feed_url, rel='alternate')
@@ -52,20 +63,27 @@ def generate_feed(podcast, episodes):
         if podcast.author:
             fg.author({'name': podcast.author})
 
-        if podcast.image_url:
-            fg.image(podcast.image_url)
+        # Artwork is served by us with a vX badge; the version is in the URL
+        # so podcast apps' artwork caches refresh on a bump.
+        from processor.artwork import BADGE_STYLE
+        image_url = (f"{base_url}/image/{podcast.id}-v{version}-s{BADGE_STYLE}.jpg"
+                     if podcast.image_url else None)
+        if image_url:
+            fg.image(image_url)
 
         # Add podcast-specific elements
         fg.load_extension('podcast')
         if podcast.author:
             fg.podcast.itunes_author(podcast.author)
-        if podcast.image_url:
-            fg.podcast.itunes_image(podcast.image_url)
+        if image_url:
+            fg.podcast.itunes_image(image_url)
 
         # Add episodes
         for episode in episodes:
             # Only include processed episodes with valid audio files
             if not episode.processed or not episode.processed_audio_path:
+                continue
+            if excluded(podcast.feed_url, episode.title):
                 continue
 
             audio_path = resolve_storage_path(episode.processed_audio_path)

@@ -8,6 +8,46 @@ Self-hosted podcast ad-remover. It watches RSS feeds, downloads new episodes,
 detects ad/promo segments, cuts them out, and re-serves a cleaned RSS feed
 that podcast apps subscribe to.
 
+## Workflow (since 2026-11-03): chat in, URLs out
+
+The web UI is **obsolete** (kept, not deleted, not maintained). The user pastes
+podcast RSS feed URLs into the Claude session; Claude subscribes them and hands
+back the cleaned-feed URL, which the user adds to their podcast app. Feedback
+on cuts ("ad left in at 12:30", "cut into the host at 40:10") comes back the
+same way and is acted on via the detector + `scripts/reprocess.py`.
+
+```bash
+venv/bin/python scripts/add_feed.py <feed_url> ...  # subscribe, print cleaned URL, kick idle worker
+venv/bin/python scripts/status.py                   # all podcasts + cleaned URLs
+venv/bin/python scripts/status.py <podcast_id>      # per-episode state + cut totals
+venv/bin/python scripts/status.py -e <episode_id>   # every cut: times, method, transcript
+venv/bin/python scripts/remove_feed.py <podcast_id>  # unsubscribe + delete all its rows/files
+venv/bin/python scripts/bump_version.py <id>|all -m "why"  # processing changed -> vX+1
+```
+
+### Per-feed processor versions
+
+Every input feed has a processor version (`feed_versions.yaml`, tracked, keyed
+by original feed URL, starts at v0 on subscribe). Served feeds are titled
+`(vX) <title>` and their artwork (`/image/<id>-vX-sN.jpg`, Pillow-stamped, cached
+in `data/images/`) carries a blue badge with the bare version number (N = `BADGE_STYLE` in
+processor/artwork.py; bump it when the badge look changes so apps refetch), so the user can see in their app
+which version they're hearing when giving feedback.
+
+**Bump whenever the way a feed is processed changes** — any detector/cutting
+change that alters that feed's output (a shared detector change bumps every
+feed it affects): `venv/bin/python scripts/bump_version.py <id>|all -m "what
+changed"`, reprocess, then commit the bump together with the change. The
+`.githooks/prepare-commit-msg` hook (`git config core.hooksPath .githooks`)
+appends a `Feed-Versions: It Could Happen Here v1, ...` trailer from the
+staged `feed_versions.yaml`; also name the bumped feed + version in the
+commit subject/body.
+
+The web server must stay running: `/feed/<id>.xml`, `/audio/<id>` and `/image/<id>-vX-sN.jpg`
+are what the podcast app fetches. If the user pastes an episode/web-page URL instead of
+a feed, find the show's RSS feed (Apple Podcasts lookup API, page `<link
+rel="alternate" type="application/rss+xml">`) before subscribing.
+
 ## Ad detection (processor/ad_detector.py)
 
 Fusion of audio-repeat evidence and transcript analysis. Read the module
@@ -46,7 +86,36 @@ docstring first; the short version:
    script-repeat evidence requires the matched span to read as ad copy —
    hosts re-speak their show-intro formula near-verbatim weekly, and only
    ad-language separates that from a host-READ ad script.
-5. **Sanity check**: feeds declare the ad-free duration; the stitched file is
+6. **LLM adjudication tier** (`processor/llm_judge.py`, `review_cuts` in
+   ad_detector; config `llm_judge`, local Ollama `qwen3:30b-a3b`, thinking
+   on, verdicts cached in `data/llm_cache/`). The lexical markers are a
+   candidate GENERATOR, not a judge: every cut not fully covered by audio
+   repeats in >= confirm_below_matches episodes is read in context (show +
+   episode title, 60s before/after) and split into blocks (sponsor_ad /
+   show_promo / network_branding / show_content). Guards around the model,
+   each from an observed failure: (a) strongly-repeated audio is never
+   overruled; (b) segments whose WORDS occur in other (non-compilation)
+   episodes can't be released -- ads re-air, show content doesn't; the
+   model misread dramatized ad skits as content; (c) unprotected AD
+   fragments < 15s inside content are released (it called "...a network
+   sponsored by a community group" an ad); (d) CONTENT islands < 10s inside
+   an ad block stay cut; (e) words repeated elsewhere in the SAME episode
+   (outside the cut) can't be released either -- a new first-person trailer
+   ("My brother David was diagnosed...") aired 4x in one episode, nowhere
+   else yet, and the model called it the host's story. If the model's
+   blocks skip segments (it sometimes stops 1-7 short of the end), it is
+   asked to finish the missing ones before giving up. Model down -> lexical
+   verdict stands.
+   Lexical lessons (ad_language.py): domains count as strong evidence only
+   in call-to-action context ("go to X.com", "free at", "X.com/slash");
+   domains count once each, phrases per occurrence. Two "x.com" mentions in
+   an interview once produced a 60s cut. The CTA verb list must include
+   imperatives ("go shop Murad on murad.com", "apply in minutes at
+   ondeck.com") or adjacent ads stop bridging and a block gets released;
+   check any change with a corpus-wide scan of newly matched domains.
+   Evaluate detector changes by snapshotting cuts first
+   (`data/eval/cuts_*.json`) and diffing released/new spans with context.
+7. **Sanity check**: feeds declare the ad-free duration; the stitched file is
    longer. `total_cut ≈ file_duration - feed_duration + ~40s` (jingle/outro/
    sting cuts are extra, by design — repetitive non-ad audio is cut too).
    Logged per episode as the "feed-duration budget".
@@ -63,7 +132,8 @@ fingerprints/transcripts make recomputation cheap; only re-export costs.
 
 ## Architecture
 
-- `app/` — Flask web UI (`run_web.py`). Routes in `app/routes.py`, SQLAlchemy
+- `app/` — Flask web server (`run_web.py`). UI pages are OBSOLETE; only the
+  feed/audio routes matter. Routes in `app/routes.py`, SQLAlchemy
   models in `app/models.py` (Podcast → Episode → RemovedSegment, ORM-level
   cascades — deletes must go through the ORM, not raw SQL, and SQLite FKs are
   NOT enforced). Additive schema migrations live in `app/database.py`.
@@ -110,8 +180,18 @@ detached/nohup shells here have an unusable PATH — keep it that way.
   Direct `:5002` from other devices is blocked by the macOS application
   firewall (this venv's python isn't in its allow list; adding it needs sudo).
   9443/8443/10000/443 on this host belong to other services — don't reuse.
-- `web.base_url` in `config.yaml` must be the externally reachable URL; it's
-  baked into feed enclosure URLs. It's read per-request, no restart needed.
+- **Public feeds (Funnel)**: podcast apps like Overcast fetch feeds from
+  THEIR servers, so tailnet-only URLs fail ("could not add URL"). Only
+  `/feed`, `/audio` and `/image` are exposed publicly, under a secret path prefix on
+  the existing Funnel port 10000 (`tailscale funnel --bg --https=10000
+  --set-path=/<secret>/feed http://127.0.0.1:5002/feed`, same for `/audio`
+  and `/image`;
+  `/` on 10000 belongs to another service). Never funnel the whole app — the
+  obsolete UI has delete/trigger endpoints. The repo is PUBLIC, so the
+  secret lives only in gitignored `config.local.yaml` (`web.base_url`
+  override, merged by `rss_generator.load_config`).
+- `web.base_url` must be the externally reachable URL; it's baked into feed
+  enclosure URLs. Restart the web agent after changing it.
 - Flask debug mode is off by default (`FLASK_DEBUG=1` to opt in). Never enable
   it while bound to 0.0.0.0 — the Werkzeug debugger is an RCE for the tailnet.
 - Audio routes must keep `conditional=True` (Range/206) or iOS Safari playback
@@ -160,7 +240,7 @@ Gotchas hit before:
   live content. Budget check holds corpus-wide.
 - Web UI + worker verified with Playwright (including the per-cut review
   players and splice audition at iPhone viewport).
-- 99% Invisible's feed carries no inserted ads (file == feed duration);
+- 99% Invisible (removed 2026-11-03, user doesn't listen) carried no inserted ads;
   zero cuts there is correct, not a bug.
 - Validation method for any detector change: run detection, print
   BEFORE/INSIDE/AFTER transcript context per cut, read every cut, compare

@@ -1,0 +1,51 @@
+# Processor version per input feed (keyed by the original feed URL).
+# Served feeds are titled "(vX) <title>" and their artwork carries a blue
+# badge with the version number. Optional per-feed `exclude_titles`: regexes
+# (case-insensitive); matching episodes are never downloaded or served.
+# Bump with scripts/bump_version.py whenever the way a feed is
+# processed changes (detector/cutting changes that alter its output), then
+# reprocess it. The current versions are stamped into every git commit by
+# .githooks/prepare-commit-msg.
+? https://www.omnycontent.com/d/playlist/e73c998e-6e60-432f-8610-ae210140c5b1/78d30acb-8463-4c40-a5ae-ae2d0145c9ff/bc7f369b-dce6-43c2-897e-ae2d0145ca12/podcast.rss
+: name: It Could Happen Here
+  version: 1
+  history:
+  - 'v0 2026-11-03: baseline (fused audio-repeat + transcript detector, talk-over trim)'
+  - 'v1 2026-11-09: LLM review tier + CTA-only domain evidence (false cuts on Crypto.com/Defend612.com news fixed); Weekly/Book Club/Rewind episodes filtered'
+  exclude_titles:
+  - ^\s*CZM Book Club
+  - ^\s*It Could Happen Here Weekly
+  - rewind
+https://feeds.npr.org/510310/podcast.xml:
+  name: The NPR Politics Podcast
+  version: 1
+  history:
+  - 'v0 2026-11-03: subscribed'
+  - 'v1 2026-11-09: LLM review tier + CTA-only domain evidence'
+https://feeds.npr.org/510318/podcast.xml:
+  name: Up First from NPR
+  version: 1
+  history:
+  - 'v0 2026-11-03: subscribed'
+  - 'v1 2026-11-09: LLM review tier + CTA-only domain evidence'
+https://feeds.npr.org/510355/podcast.xml:
+  name: Consider This from NPR
+  version: 1
+  history:
+  - 'v0 2026-11-03: subscribed'
+  - 'v1 2026-11-09: LLM review tier + CTA-only domain evidence'
+https://feeds.simplecast.com/kEKXbjuJ:
+  name: The Ezra Klein Show
+  version: 1
+  history:
+  - 'v0 2026-11-03: subscribed'
+  - 'v1 2026-11-09: LLM review tier + CTA-only domain evidence (x.com interview false cut fixed)'
+? https://www.omnycontent.com/d/playlist/e73c998e-6e60-432f-8610-ae210140c5b1/e5f91208-cc7e-4726-a312-ae280140ad11/d64f756d-6d5e-4fae-b24f-ae280140ad36/podcast.rss
+: name: Behind the Bastards
+  version: 1
+  history:
+  - 'v0 2026-11-03: subscribed'
+  - 'v1 2026-11-09: LLM review tier + CTA-only domain evidence; It Could Happen Here Weekly/CZM Book Club cross-posts filtered'
+  exclude_titles:
+  - ^\s*CZM Book Club
+  - ^\s*It Could Happen Here Weekly

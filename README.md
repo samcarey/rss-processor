@@ -2,6 +2,10 @@
 
 Automatically download podcasts, detect and remove ads/promos/branding, and serve cleaned RSS feeds.
 
+> **The web UI is obsolete** (since 2026-11-03). Feeds are added with
+> `scripts/add_feed.py <feed_url>` and inspected with `scripts/status.py`; the
+> web server now only matters for serving `/feed/<id>.xml` and `/audio/<id>`.
+
 ## Features
 
 - Parse and monitor RSS podcast feeds; download new episodes automatically
@@ -15,7 +19,7 @@ Automatically download podcasts, detect and remove ads/promos/branding, and serv
   ("We're back", talked-over transitions) and quoted clips reused across
   episodes — only prerecorded ad/promo/branding audio is cut
 - Generate cleaned RSS feeds for podcast apps
-- Web interface with per-cut review: what was removed, why, the transcript
+- (Obsolete) web interface with per-cut review: what was removed, why, the transcript
   of the removed audio, and a "hear the splice" audition button
 - Background worker for continuous processing
 

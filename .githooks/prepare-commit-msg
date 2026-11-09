@@ -1,0 +1,10 @@
+#!/bin/sh
+# Stamp current per-feed processor versions (feed_versions.yaml, as staged)
+# into every commit message as a "Feed-Versions:" trailer.
+case "$2" in merge|squash) exit 0 ;; esac
+grep -q '^Feed-Versions:' "$1" && exit 0
+root=$(git rev-parse --show-toplevel)
+versions=$(git show :feed_versions.yaml 2>/dev/null \
+  | (cd "$root" && venv/bin/python -m processor.versions) 2>/dev/null)
+[ -n "$versions" ] || exit 0
+git interpret-trailers --in-place --trailer "Feed-Versions: $versions" "$1"

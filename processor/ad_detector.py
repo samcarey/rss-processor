@@ -56,6 +56,9 @@ DEFAULTS = {
                       "is a production of"],
     "tail_bridge_gap_seconds": 150.0,
     "tail_eof_snap_seconds": 25.0,
+    "llm_min_fragment_seconds": 15.0,
+    "llm_min_release_seconds": 10.0,
+    "llm_veto_window_words": 25,
 }
 
 
@@ -183,6 +186,12 @@ def detect_ads(target, others, config):
             if other.get("tx") and other["id"] not in excluded_ids:
                 other_shingles |= word_shingle_set(other["tx"])
     cuts = _assemble(kept, tx, dur, p, evidence, other_shingles)
+
+    # --- 7. LLM adjudication: the lexical rules above generate candidates;
+    # a local LLM reads each cut in context and releases show content.
+    if tx and (config.get("llm_judge") or {}).get("enabled", False):
+        cuts = review_cuts(cuts, tx, evidence, dur, p, config,
+                           target.get("show"), target.get("title"), other_shingles)
 
     total_cut = sum(c["end"] - c["start"] for c in cuts)
     budget = None
@@ -464,7 +473,9 @@ _BREAK_FORMULA = _re.compile(
     r"and now back to|when we (come|get) back|we('|w)?ll be (right )?back|"
     r"be right back|after (the|this) break|after these messages|"
     r"(go|going|let's go)( on| to)? a break|take a (quick )?break|"
-    r"return for (a few )?more|right after this)\b")
+    r"return for (a few )?more|right after this|"
+    # guest-introduction formulas, spoken live over the theme music
+    r"joins? (me|us) (now|today|here)|(he|she|they)('s| is| are)? (here )?with (me|us))\b")
 
 
 def _snap_to_speech(r, tx, dur, snap_max=2.5):
@@ -533,3 +544,135 @@ def _walk(tx, edge, limit, p, forward=True):
             budget -= moved - best
             moved = best
     return min(moved, limit) if forward else max(moved, limit)
+
+
+def review_cuts(cuts, tx, evidence, dur, p, config, show=None, episode=None,
+                other_shingles=None):
+    """LLM tier (processor/llm_judge.py). Transcript segments inside a cut
+    that are covered by audio repeats in >= confirm_below_matches other
+    episodes are protected (audio evidence that strong is never overruled);
+    every other segment must be labeled AD by the model or it is released --
+    the cut shrinks, splits, or is dropped. Model unavailable -> cut kept."""
+    from processor.llm_judge import label_segments
+    strong_n = p["confirm_below_matches"]
+    audio = [(a, b, o) for a, b, o, ber in evidence if ber is not None]
+
+    def protected(s, e):
+        return len({o for a, b, o in audio
+                    if min(b, e) - max(a, s) > 0.5 * (e - s)}) >= strong_n
+
+    out = []
+    for c in cuts:
+        s0, e0 = c["start"], c["end"]
+        segs = [(a, b, t) for a, b, t in tx
+                if min(b, e0) - max(a, s0) > 0.5 * max(b - a, 0.01)]
+        if not segs:
+            out.append(c)
+            continue
+        prot = [protected(max(a, s0), min(b, e0)) for a, b, _ in segs]
+        if all(prot):
+            out.append(c)
+            continue
+        before = [t for a, b, t in tx if b <= s0 + 0.5 and b > s0 - 60][-8:]
+        after = [t for a, b, t in tx if a >= e0 - 0.5 and a < e0 + 60][:8]
+        labels = label_segments(before, [t for _, _, t in segs], after, config,
+                                show, episode)
+        if labels is None:
+            out.append(c)
+            continue
+        # textual veto: words that also occur in OTHER episodes are
+        # prerecorded (ads re-air; show content is unique to its episode), so
+        # the model may not release them -- it misreads dramatized ad skits
+        # ("Dad, Disney activities are on Lingo Kids!") as show content.
+        # Break formulas ("we're back") are live despite repeating.
+        # Words repeated ELSEWHERE IN THIS EPISODE (outside this cut) are an
+        # inserted promo too: a brand-new first-person trailer ("My brother
+        # David was diagnosed...") aired 4x in one episode, existed in no
+        # other episode yet, and the model read it as the host's story.
+        from processor.script_repeat import text_repeats_elsewhere, word_shingle_set
+        self_shingles = word_shingle_set(
+            [(a, b, t) for a, b, t in tx if b <= s0 + 0.5 or a >= e0 - 0.5])
+
+        def releasable(t):
+            if len(t.split()) <= 20 and _BREAK_FORMULA.search(t.lower()):
+                return True
+            return not ((other_shingles and text_repeats_elsewhere(t, other_shingles))
+                        or text_repeats_elsewhere(t, self_shingles))
+
+        # The veto is judged on ~25 words of context, not per segment:
+        # whisper segments are 2-8 words, and common phrases ("get people
+        # out of the streets") then match other episodes by chance -- that
+        # once vetoed a 64s live discussion back into a cut. The window
+        # stays inside the run of segments the model called content.
+        is_ad = [pr or lab == "AD" for pr, lab in zip(prot, labels)]
+        content_runs, i = [], 0
+        while i < len(segs):
+            if is_ad[i]:
+                i += 1
+                continue
+            j = i
+            while j + 1 < len(segs) and not is_ad[j + 1]:
+                j += 1
+            content_runs.append((i, j))
+            i = j + 1
+        veto = []
+        for i0, j0 in content_runs:
+            for k in range(i0, j0 + 1):
+                lo = hi = k
+                words = len(segs[k][2].split())
+                while words < p["llm_veto_window_words"] and (lo > i0 or hi < j0):
+                    if lo > i0:
+                        lo -= 1
+                        words += len(segs[lo][2].split())
+                    if hi < j0 and words < p["llm_veto_window_words"]:
+                        hi += 1
+                        words += len(segs[hi][2].split())
+                if not releasable(" ".join(t for _, _, t in segs[lo:hi + 1])):
+                    veto.append(k)
+        for k in veto:
+            is_ad[k] = True
+        # mirror guard: a short CONTENT island flanked by AD on both sides is
+        # a misread inside an ad break, not show content worth a splice
+        i = 0
+        while i < len(segs):
+            if is_ad[i]:
+                i += 1
+                continue
+            j = i
+            while j + 1 < len(segs) and not is_ad[j + 1]:
+                j += 1
+            if 0 < i and j < len(segs) - 1 and \
+                    segs[j][1] - segs[i][0] < p["llm_min_release_seconds"]:
+                for k in range(i, j + 1):
+                    is_ad[k] = True
+            i = j + 1
+        if all(is_ad):
+            out.append(dict(c, method=_join_methods(c["method"], "llm")))
+            continue
+        # keep runs of AD segments; edges next to released content move to
+        # segment STARTS (whisper segment ends bleed across music)
+        i = 0
+        while i < len(segs):
+            if not is_ad[i]:
+                i += 1
+                continue
+            j = i
+            while j + 1 < len(segs) and is_ad[j + 1]:
+                j += 1
+            s = s0 if i == 0 else segs[i][0]
+            e = e0 if j == len(segs) - 1 else segs[j + 1][0]
+            # a short unprotected AD fragment carved out of a cut the model
+            # otherwise calls content is a misread sentence fragment (e.g.
+            # "...a network sponsored by a community group"), not an ad:
+            # real ads are not 7-second slivers of a news sentence.
+            if e - s < p["llm_min_fragment_seconds"] and not any(prot[i:j + 1]):
+                i = j + 1
+                continue
+            if e - s >= p["min_cut_seconds"]:
+                out.append(dict(c, start=round(s, 2), end=round(e, 2),
+                                method=_join_methods(c["method"], "llm_trim"),
+                                excerpt=text_between(tx, s, e)[:300]))
+            i = j + 1
+        logger.info(f"LLM released content in cut {s0:.0f}-{e0:.0f}s: "
+                    + "".join("A" if x else "c" for x in is_ad))
+    return out

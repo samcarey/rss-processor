@@ -35,3 +35,6 @@ Thumbs.db
 
 # Environment variables
 .env
+
+# Local overrides (secret public base_url)
+config.local.yaml

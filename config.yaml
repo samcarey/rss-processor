@@ -30,3 +30,10 @@ transcription:
 #   max_pair_fraction: 0.35   # compilation-relationship exclusion
 #   confirm_below_matches: 4  # low-evidence regions need transcript confirm
 ad_detection: {}
+
+# LLM adjudication tier (processor/llm_judge.py): a local Ollama model reads
+# every cut not fully backed by strong audio repeats and releases show content.
+llm_judge:
+  enabled: true
+  model: qwen3:30b-a3b
+  think: true

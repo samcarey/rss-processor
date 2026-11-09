@@ -49,3 +49,8 @@ https://feeds.simplecast.com/kEKXbjuJ:
   exclude_titles:
   - ^\s*CZM Book Club
   - ^\s*It Could Happen Here Weekly
+https://feeds.megaphone.fm/BVLLC2163264914:
+  name: The Weekly Show with Jon Stewart
+  version: 0
+  history:
+  - 'v0 2026-11-09: subscribed'

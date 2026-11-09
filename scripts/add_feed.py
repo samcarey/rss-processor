@@ -7,6 +7,7 @@ idle, and prints the URL to subscribe to in a podcast app.
 Usage:
     python scripts/add_feed.py <feed_url> [<feed_url> ...]
     python scripts/add_feed.py --no-kick <feed_url>   # don't restart worker
+    python scripts/add_feed.py --backfill-days 100 <feed_url>  # wider window; re-run adds missing episodes
 """
 import os
 import subprocess
@@ -28,19 +29,24 @@ WORKER = 'gui/501/com.rssprocessor.worker'
 def main():
     args = sys.argv[1:]
     kick = '--no-kick' not in args
+    with open(os.path.join(ROOT, 'config.yaml')) as f:
+        config = yaml.safe_load(f)
+    days = config['worker']['backfill_days']
+    if '--backfill-days' in args:
+        i = args.index('--backfill-days')
+        days = int(args[i + 1])
+        del args[i:i + 2]
     urls = [a for a in args if a != '--no-kick']
     if not urls:
         sys.exit(__doc__)
-    with open(os.path.join(ROOT, 'config.yaml')) as f:
-        config = yaml.safe_load(f)
     init_db()
     session = get_session()
 
     added = False
     for url in urls:
-        podcast, created = add_podcast(session, url.strip(),
-                                       config['worker']['backfill_days'])
-        added |= created
+        before = session.query(Episode).count()
+        podcast, created = add_podcast(session, url.strip(), days)
+        added |= created or session.query(Episode).count() > before
         n = session.query(Episode).filter_by(podcast_id=podcast.id).count()
         done = session.query(Episode).filter_by(podcast_id=podcast.id,
                                                 processed=True).count()

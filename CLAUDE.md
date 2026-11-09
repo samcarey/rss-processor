@@ -18,6 +18,7 @@ same way and is acted on via the detector + `scripts/reprocess.py`.
 
 ```bash
 venv/bin/python scripts/add_feed.py <feed_url> ...  # subscribe, print cleaned URL, kick idle worker
+venv/bin/python scripts/add_feed.py --backfill-days 100 <url>  # widen window (re-runnable)
 venv/bin/python scripts/status.py                   # all podcasts + cleaned URLs
 venv/bin/python scripts/status.py <podcast_id>      # per-episode state + cut totals
 venv/bin/python scripts/status.py -e <episode_id>   # every cut: times, method, transcript
@@ -44,7 +45,13 @@ staged `feed_versions.yaml`; also name the bumped feed + version in the
 commit subject/body.
 
 The web server must stay running: `/feed/<id>.xml`, `/audio/<id>` and `/image/<id>-vX-sN.jpg`
-are what the podcast app fetches. If the user pastes an episode/web-page URL instead of
+are what the podcast app fetches. Weekly shows: 14 days of backfill is ~2 episodes, too few for audio-repeat
+evidence -- add with `--backfill-days` (~10 episodes). The worker only
+DOWNLOADS rows inside `worker.backfill_days`, so download the older rows once
+by hand (`processor.downloader.download_episode`, set
+`original_audio_path`); processing then picks them up. Don't widen the
+worker's download filter: It Could Happen Here has ~1400 old rows.
+If the user pastes an episode/web-page URL instead of
 a feed, find the show's RSS feed (Apple Podcasts lookup API, page `<link
 rel="alternate" type="application/rss+xml">`) before subscribing.
 

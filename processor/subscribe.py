@@ -9,14 +9,17 @@ from processor.versions import excluded
 def add_podcast(session, feed_url, backfill_days):
     """Insert the podcast + its in-window episodes. Returns (podcast, created).
 
-    Idempotent: an existing podcast with the same feed_url is returned as-is.
-    Downloading/processing stays the worker's job.
+    Idempotent: for an existing podcast (same feed_url) only in-window
+    episodes it doesn't have yet are inserted -- so re-adding with a larger
+    backfill_days widens the window (more episodes = more audio-repeat
+    evidence for a new show). Downloading/processing stays the worker's job.
     """
     existing = session.query(Podcast).filter_by(feed_url=feed_url).first()
+    feed_data = parse_feed(feed_url)
     if existing:
+        _insert_episodes(session, existing, feed_data, backfill_days)
         return existing, False
 
-    feed_data = parse_feed(feed_url)
     podcast = Podcast(
         feed_url=feed_url,
         title=feed_data['podcast']['title'],
@@ -27,12 +30,21 @@ def add_podcast(session, feed_url, backfill_days):
     session.add(podcast)
     session.commit()
 
+    _insert_episodes(session, podcast, feed_data, backfill_days)
+
+    from processor.versions import register
+    register(feed_url, podcast.title)
+    return podcast, True
+
+
+def _insert_episodes(session, podcast, feed_data, backfill_days):
     # backfill_days is a hard window (see CLAUDE.md behavior contracts)
     cutoff = datetime.utcnow() - timedelta(days=backfill_days)
+    have = {g for (g,) in session.query(Episode.guid).filter_by(podcast_id=podcast.id)}
     for ep in feed_data['episodes']:
         if ep.get('pub_date') and ep['pub_date'] < cutoff:
             continue
-        if excluded(feed_url, ep['title']):
+        if ep['guid'] in have or excluded(podcast.feed_url, ep['title']):
             continue
         session.add(Episode(
             podcast_id=podcast.id,
@@ -44,10 +56,6 @@ def add_podcast(session, feed_url, backfill_days):
             duration_seconds=ep.get('duration'),
         ))
     session.commit()
-
-    from processor.versions import register
-    register(feed_url, podcast.title)
-    return podcast, True
 
 
 def remove_podcast(session, config, podcast):

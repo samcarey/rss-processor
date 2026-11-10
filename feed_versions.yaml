@@ -13,7 +13,7 @@
   - 'v0 2026-11-03: baseline (fused audio-repeat + transcript detector, talk-over trim)'
   - 'v1 2026-11-09: LLM review tier + CTA-only domain evidence (false cuts on Crypto.com/Defend612.com news fixed); Weekly/Book Club/Rewind episodes filtered'
   exclude_titles:
-  - ^\s*CZM Book Club
+  - ^\s*CZM\b.*Book Club
   - ^\s*It Could Happen Here Weekly
   - rewind
 https://feeds.npr.org/510310/podcast.xml:
@@ -47,7 +47,7 @@ https://feeds.simplecast.com/kEKXbjuJ:
   - 'v0 2026-11-03: subscribed'
   - 'v1 2026-11-09: LLM review tier + CTA-only domain evidence; It Could Happen Here Weekly/CZM Book Club cross-posts filtered'
   exclude_titles:
-  - ^\s*CZM Book Club
+  - ^\s*CZM\b.*Book Club
   - ^\s*It Could Happen Here Weekly
 https://feeds.megaphone.fm/BVLLC2163264914:
   name: The Weekly Show with Jon Stewart

@@ -77,6 +77,7 @@ def check_podcast(podcast, config, session):
 
         # Process episodes from the feed
         new_episodes = []
+        renamed = 0
         for episode_data in feed_data['episodes']:
             # Check if episode already exists
             existing = session.query(Episode).filter_by(
@@ -85,6 +86,14 @@ def check_podcast(podcast, config, session):
             ).first()
 
             if existing:
+                # Shows retitle episodes after publishing ("Thinking Like a
+                # Supermajority" -> "The Path to a Democratic Supermajority");
+                # mirror that so the user can find it in the cleaned feed.
+                if episode_data.get('title') and existing.title != episode_data['title']:
+                    logger.info(f"Retitled: {existing.title!r} -> {episode_data['title']!r}")
+                    existing.title = episode_data['title']
+                    existing.description = episode_data.get('description') or existing.description
+                    renamed += 1
                 continue
 
             # Per-feed title exclusions (feed_versions.yaml exclude_titles)
@@ -110,6 +119,8 @@ def check_podcast(podcast, config, session):
             new_episodes.append(episode)
 
         session.commit()
+        if renamed and not new_episodes:
+            ping_feed_change(podcast.id)
 
         if new_episodes:
             logger.info(f"Found {len(new_episodes)} new episodes")

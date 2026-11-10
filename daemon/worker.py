@@ -36,6 +36,9 @@ def signal_handler(sig, frame):
     shutdown_requested = True
 
 
+from processor.notify import ping_feed_change
+
+
 def load_config():
     """Load configuration from config.yaml"""
     config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config.yaml')
@@ -142,6 +145,7 @@ def check_podcast(podcast, config, session):
                     podcast.episodes_processed = idx + 1
                     podcast.processing_progress = 0
                     session.commit()
+                    ping_feed_change(podcast.id)
 
                 except Exception as e:
                     logger.error(f"Failed to process episode {episode.id}: {e}")
@@ -192,6 +196,7 @@ def download_and_process_episode(episode, config, session, podcast=None):
         session.commit()
 
         logger.info(f"Episode processed successfully. Saved {result['duration_saved']:.1f}s")
+        ping_feed_change(episode.podcast_id)
 
     except Exception as e:
         logger.error(f"Failed to download/process episode {episode.id}: {e}")
@@ -327,6 +332,7 @@ def process_unprocessed_episodes(config, session):
                     podcast.episodes_processed = idx + 1
                     podcast.processing_progress = 0
                     session.commit()
+                    ping_feed_change(podcast.id)
 
                     logger.info(f"Episode processed. Saved {result['duration_saved']:.1f}s")
 

@@ -37,6 +37,7 @@ def main():
                 if not only or e.id in only]
     print(f"Reprocessing {len(episodes)} episodes")
 
+    touched = set()
     for ep in episodes:
         audio = resolve_storage_path(ep.original_audio_path)
         if not os.path.exists(audio):
@@ -64,7 +65,11 @@ def main():
         session.commit()
         print(f"  removed {result['duration_saved']:.0f}s in "
               f"{len(result['segments_removed'])} segments")
+        touched.add(ep.podcast_id)
 
+    from processor.notify import ping_feed_change
+    for pid in sorted(touched):
+        ping_feed_change(pid)
     print("done")
 
 

@@ -15,7 +15,7 @@ web:
   base_url: https://mini4.tail350dd8.ts.net:9444
 
 worker:
-  check_interval_seconds: 1800  # 30 minutes
+  check_interval_seconds: 600  # 10 minutes (feed re-parse is cheap; new episodes sooner)
   backfill_days: 14
 
 audio:
